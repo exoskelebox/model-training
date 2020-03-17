@@ -1,0 +1,6 @@
+CREATE VIEW public.combined_calibration
+AS
+    SELECT arm.subject_id, arm.calibration_iterations as arm_calibration_iterations, arm.calibration_values as arm_calibration_values,
+        wrist.calibration_iterations as wrist_calibration_iterations, wrist.calibration_values as wrist_calibration_values
+    FROM calibration AS wrist
+        JOIN calibration AS arm ON (arm.subject_id=wrist.subject_id AND arm.calibration_gesture LIKE 'arm%' AND wrist.calibration_gesture LIKE 'wrist%')
