@@ -1,0 +1,4 @@
+CREATE OR REPLACE VIEW training AS
+    SELECT *
+    FROM subjects JOIN data USING (subject_id)
+        JOIN combined_calibration USING (subject_id)
