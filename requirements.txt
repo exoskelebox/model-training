@@ -1,2 +1,2 @@
 psycopg2==2.8.4
-tensorflow==2
+tensorflow==2.0.1
