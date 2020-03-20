@@ -4,6 +4,31 @@ from database import Database
 import typing
 from typing import List, Tuple
 from collections import defaultdict
+from functools import reduce
+import operator
+
+# the columns present in the database that can be used as a feature
+FEATURE_COLUMNS = [
+    'subject_gender',
+    'subject_age',
+    'subject_fitness',
+    'subject_handedness',
+    'subject_impairment',
+    'subject_wrist_circumference',
+    'subject_forearm_circumference',
+    'repetition',
+    'timestamp',
+    'readings',
+    'arm_calibration_iterations',
+    'arm_calibration_values',
+    'wrist_calibration_iterations',
+    'wrist_calibration_values',
+]
+
+# the columns present in the database that can be used as a label
+LABEL_COLUMNS = [
+    'gesture'
+]
 
 # A utility method to identify test data
 
@@ -50,7 +75,8 @@ feature_column_constructors = {
     'subject_impairment': lambda x=None: get_indicator_column('subject_impairment', ['True', 'False'], x),
     'subject_wrist_circumference': lambda x=None: get_numeric_column('subject_wrist_circumference', tf.float32, x),
     'subject_forearm_circumference': lambda x=None: get_numeric_column('subject_forearm_circumference', tf.float32, x),
-    'gesture': None,  # TODO: Handle Label
+    # TODO: Handle Label
+    'gesture': None,
     'repetition': None,
     'reading_count': lambda x=None: get_numeric_column('reading_count', tf.uint16, x),
     'timestamp': None,  # TODO: Handle timestamps
@@ -148,15 +174,23 @@ def get_data(features=FEATURES, label=LABEL) -> Tuple[tf.data.Dataset]:
     Returns (train, test) tf.data.Datasets.
     """
 
-    # Convert to set to ensure uniqueness
     colnames = set(features + [label])
+
+    # query the database for the relevant data
     cur = Database().query(
-        f"SELECT {','.join(colnames)} FROM training LIMIT 5")
+        f"SELECT {','.join(colnames)} FROM training LIMIT 100")
+
+    # construct a data dictionary
     data_batched = defaultdict(list)
     [[data_batched[feature].append(
         row[index]) for index, feature in enumerate(colnames)] for row in cur]
     data_batched = dict(data_batched)
-    labels = data_batched.pop(label)  # {'label': data_batched.pop(label)}
+
+    # One hot encode the labels
+    labels = data_batched.pop(label)
+    label_map = {x: i for i, x in enumerate(set(labels))}
+    labels = [label_map[label] for label in labels]
+    labels = tf.keras.utils.to_categorical(labels)
 
     # Convert timestamps to iso format
     if 'timestamp' in data_batched.keys():
@@ -173,13 +207,14 @@ def get_data(features=FEATURES, label=LABEL) -> Tuple[tf.data.Dataset]:
         print(data_batched['subject_impairment'][:5])
 
     tf_data = tf.data.Dataset.from_tensor_slices((data_batched, labels))
-    print(len(list(tf_data)))
 
     print('Filtering:')
     train = tf_data.filter(is_training)
     test = tf_data.filter(is_test)
 
-    print(f'{len(list(train))}/{len(list(test))}')
+    print(f'Total samples: {len(list(tf_data))}')
+    print(f'Training samples: {len(list(train))}')
+    print(f'Test samples: {len(list(test))}')
 
     return train, test
 
@@ -195,8 +230,6 @@ def run_model(train, test) -> None:
 
     # We will use this batch to demonstrate feature columns
     example_batch = next(iter(train))
-    print(example_batch)
-    exit()
 
     get_feature_columns_test(example_batch)
 
@@ -238,9 +271,39 @@ def run_model(train, test) -> None:
     print('Model Evaluated.')
 
 
+def get_feature_columns_final(train: tf.data.Dataset) -> List['feature_column']:
+    # Get the names of features
+    names = train.element_spec[0].keys()
+
+    # Get feature columns for all features and labels
+    return [feature_column_constructors[name]() for name in names]
+
+
 def main():
-    train, test = get_data()
-    run_model(train, test)
+    train, test = get_data(['subject_gender', 'reading_count'], 'gesture')
+    feature_columns = get_feature_columns_final(train)
+    """ train = train.batch(32)
+    test = test.batch(32)
+    cur = Database().query('SELECT DISTINCT gesture FROM training')
+    print([row[0] for row in cur.fetchall()]) """
+    """ example_batch = next(iter(train))
+    feature_columns = get_feature_columns(example_batch[0].keys())
+    feature_layer = tf.keras.layers.DenseFeatures(feature_columns)
+
+    model = tf.keras.Sequential([
+        feature_layer,
+        tf.keras.layers.Dense(256),
+        tf.keras.layers.Dense(16),
+        tf.keras.layers.Dense(8),
+        tf.keras.layers.Dense(4, activation=tf.nn.softmax)
+    ])
+
+    model.compile(optimizer='adam',
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    model.fit(train, validation_data=test, epochs=20) """
+    #run_model(train, test)
 
 
 if __name__ == "__main__":
