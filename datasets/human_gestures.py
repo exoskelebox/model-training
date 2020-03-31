@@ -29,42 +29,67 @@ feature_description = {
 }
 
 
-def _parse_function(example_proto):
+def _parse(example_proto):
     # Parse the input `tf.Example` proto using the feature description dictionary.
     parsed_example = tf.io.parse_single_example(
         example_proto, feature_description)
     return parsed_example, parsed_example.pop('label')
 
 
-def _numeric_column(shape=(1,), default_value=None, dtype=tf.dtypes.float32, normalizer_fn=None):
-    return lambda key: tf.feature_column.numeric_column(
-        key,
-        shape=shape,
-        default_value=default_value,
-        dtype=dtype,
-        normalizer_fn=normalizer_fn)
+def _parse_batch(example_protos):
+    # Parse the input `tf.Example` proto using the feature description dictionary.
+    parsed_examples = tf.io.parse_example(
+        example_protos, feature_description)
+    return parsed_examples, parsed_examples.pop('label')
 
 
-def _indicator_column(vocabulary_list, dtype=None, default_value=-1, num_oov_buckets=0):
-    return lambda key: tf.feature_column.indicator_column(
-        tf.feature_column.categorical_column_with_vocabulary_list(
-            key,
-            vocabulary_list,
-            dtype=dtype,
-            default_value=default_value,
-            num_oov_buckets=num_oov_buckets))
-
-
-def _bucketized_column(boundaries, default_value=None, dtype=tf.dtypes.float32, normalizer_fn=None):
-    return lambda key: tf.feature_column.bucketized_column(
-        _numeric_column(
-            default_value=default_value,
-            dtype=dtype,
-            normalizer_fn=normalizer_fn)(key),
-        boundaries)
+def _build_dataset(filenames, batch_size=64):
+    return tf.data.Dataset.from_tensor_slices(
+        filenames
+    ).interleave(
+        tf.data.TFRecordDataset,
+        cycle_length=tf.data.experimental.AUTOTUNE,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE
+    ).shuffle(
+        2048
+    ).batch(
+        batch_size=batch_size,
+        drop_remainder=True,
+    ).map(
+        map_func=_parse_batch,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE
+    ).cache(
+    ).prefetch(
+        tf.data.experimental.AUTOTUNE
+    )
 
 
 def get_feature_layer(cols: [] = None) -> tf.keras.layers.Dense:
+
+    def _numeric_column(shape=(1,), default_value=None, dtype=tf.dtypes.float32, normalizer_fn=None):
+        return lambda key: tf.feature_column.numeric_column(
+            key,
+            shape=shape,
+            default_value=default_value,
+            dtype=dtype,
+            normalizer_fn=normalizer_fn)
+
+    def _indicator_column(vocabulary_list, dtype=None, default_value=-1, num_oov_buckets=0):
+        return lambda key: tf.feature_column.indicator_column(
+            tf.feature_column.categorical_column_with_vocabulary_list(
+                key,
+                vocabulary_list,
+                dtype=dtype,
+                default_value=default_value,
+                num_oov_buckets=num_oov_buckets))
+
+    def _bucketized_column(boundaries, default_value=None, dtype=tf.dtypes.float32, normalizer_fn=None):
+        return lambda key: tf.feature_column.bucketized_column(
+            _numeric_column(
+                default_value=default_value,
+                dtype=dtype,
+                normalizer_fn=normalizer_fn)(key),
+            boundaries)
 
     feature_columns = {
         'subject_id': _numeric_column(dtype=tf.uint16),
@@ -95,7 +120,7 @@ def get_feature_layer(cols: [] = None) -> tf.keras.layers.Dense:
     return tf.keras.layers.DenseFeatures([feature_columns[col](col) for col in cols])
 
 
-def get_data(shuffle=True, test=0.2):
+def get_data(shuffle=True, test=0.2, batch_size=64):
     """
     Retreives the human gestures dataset.
     """
@@ -111,35 +136,4 @@ def get_data(shuffle=True, test=0.2):
     num_test = int(test * len(files))
     train_files, test_files = files[num_test:], files[:num_test]
 
-    train = tf.data.TFRecordDataset(
-        filenames=train_files,
-        num_parallel_reads=tf.data.experimental.AUTOTUNE
-    ).map(
-        _parse_function,
-        num_parallel_calls=tf.data.experimental.AUTOTUNE
-    )
-    """ .prefetch(
-        tf.data.experimental.AUTOTUNE
-    ) """
-
-    test = tf.data.TFRecordDataset(
-        filenames=test_files,
-        num_parallel_reads=tf.data.experimental.AUTOTUNE
-    ).map(
-        _parse_function,
-        num_parallel_calls=tf.data.experimental.AUTOTUNE
-    )
-    """ .prefetch(
-        tf.data.experimental.AUTOTUNE
-    ) """
-
-    return train, test
-
-
-def benchmark(dataset, num_epochs=2):
-    start_time = time.perf_counter()
-    for epoch_num in range(num_epochs):
-        for sample in dataset:
-            # Performing a training step
-            time.sleep(0.01)
-    tf.print("Execution time:", time.perf_counter() - start_time)
+    return _build_dataset(train_files, batch_size), _build_dataset(test_files, batch_size)
