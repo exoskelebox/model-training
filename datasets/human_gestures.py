@@ -110,12 +110,28 @@ def get_data(shuffle=True, test=0.2):
 
     num_test = int(test * len(files))
     train_files, test_files = files[num_test:], files[:num_test]
-    print(len(train_files))
-    print(len(test_files))
-    train = tf.data.TFRecordDataset(filenames=files).map(
-        _parse_function, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    test = tf.data.TFRecordDataset(filenames=files).map(
-        _parse_function, num_parallel_calls=tf.data.experimental.AUTOTUNE).cache()
+
+    train = tf.data.TFRecordDataset(
+        filenames=train_files,
+        num_parallel_reads=tf.data.experimental.AUTOTUNE
+    ).map(
+        _parse_function,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE
+    )
+    """ .prefetch(
+        tf.data.experimental.AUTOTUNE
+    ) """
+
+    test = tf.data.TFRecordDataset(
+        filenames=test_files,
+        num_parallel_reads=tf.data.experimental.AUTOTUNE
+    ).map(
+        _parse_function,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE
+    )
+    """ .prefetch(
+        tf.data.experimental.AUTOTUNE
+    ) """
 
     return train, test
 
@@ -127,6 +143,3 @@ def benchmark(dataset, num_epochs=2):
             # Performing a training step
             time.sleep(0.01)
     tf.print("Execution time:", time.perf_counter() - start_time)
-
-
-train, test = get_data()
