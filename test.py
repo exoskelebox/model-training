@@ -3,7 +3,7 @@ from utils.data_utils import fraction_train_test_split, feature_train_test_split
 import tensorflow as tf
 import statistics
 
-train, test = human_gestures.get_data()
+train, test = human_gestures.get_data(batch_size=1024)
 feature_layer = human_gestures.get_feature_layer([
     'subject_gender',
     'subject_age',
@@ -65,8 +65,6 @@ print(results)
 
 print("Avg. ACC = {}".format(statistics.mean(
     [acc for key, (loss, acc) in results.items()]))) """
-
-train, test = train.batch(1024), test.batch(1024)
 
 model = tf.keras.Sequential([
     feature_layer,
