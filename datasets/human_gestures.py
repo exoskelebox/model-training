@@ -1,9 +1,39 @@
 from __future__ import absolute_import
 
-from database import Database
 from typing import List, Tuple
 import tensorflow as tf
+import time
 from collections import defaultdict
+import glob
+import random
+
+feature_description = {
+    'subject_id': tf.io.FixedLenFeature([], tf.int64),
+    'subject_gender': tf.io.FixedLenFeature([], tf.string),
+    'subject_age': tf.io.FixedLenFeature([], tf.int64),
+    'subject_fitness': tf.io.FixedLenFeature([], tf.int64),
+    'subject_handedness': tf.io.FixedLenFeature([], tf.string),
+    'subject_impairment': tf.io.FixedLenFeature([], tf.string),
+    'subject_wrist_circumference': tf.io.FixedLenFeature([], tf.float32),
+    'subject_forearm_circumference': tf.io.FixedLenFeature([], tf.float32),
+    'gesture': tf.io.FixedLenFeature([], tf.string),
+    'repetition': tf.io.FixedLenFeature([], tf.int64),
+    'reading_count': tf.io.FixedLenFeature([], tf.int64),
+    'readings': tf.io.FixedLenFeature([15], tf.int64),
+    'arm_calibration_iterations': tf.io.FixedLenFeature([], tf.int64),
+    'arm_calibration_values': tf.io.FixedLenFeature([8], tf.int64),
+    'wrist_calibration_iterations': tf.io.FixedLenFeature([], tf.int64),
+    'wrist_calibration_values': tf.io.FixedLenFeature([7], tf.int64),
+    'timedelta': tf.io.FixedLenFeature([], tf.int64),
+    'label': tf.io.FixedLenFeature([], tf.int64)
+}
+
+
+def _parse_function(example_proto):
+    # Parse the input `tf.Example` proto using the feature description dictionary.
+    parsed_example = tf.io.parse_single_example(
+        example_proto, feature_description)
+    return parsed_example, parsed_example.pop('label')
 
 
 def _numeric_column(shape=(1,), default_value=None, dtype=tf.dtypes.float32, normalizer_fn=None):
@@ -34,84 +64,69 @@ def _bucketized_column(boundaries, default_value=None, dtype=tf.dtypes.float32, 
         boundaries)
 
 
-# the columns present in the database that can be used as a feature
-# each feature should be associated with a feature column constructor function
-FEATURE_COLUMNS = {
-    'subject_gender': _indicator_column(['m', 'f']),
-    'subject_age': _bucketized_column([18, 25, 30, 35, 40, 45, 50, 55, 60, 65], dtype=tf.uint8),
-    'subject_fitness': _bucketized_column([2, 4, 6, 8], dtype=tf.uint8),
-    'subject_handedness': _indicator_column(['l', 'r', 'a']),
-    'subject_impairment': _indicator_column(['True', 'False']),
-    'subject_wrist_circumference': _numeric_column(),
-    'subject_forearm_circumference': _numeric_column(),
-    'repetition': _numeric_column(),
-    'timestamp': None,  # TODO
-    'readings': _numeric_column(dtype=tf.dtypes.uint8, shape=15),
-    'arm_calibration_iterations': _numeric_column(dtype=tf.dtypes.uint16),
-    'arm_calibration_values': _numeric_column(dtype=tf.dtypes.uint8, shape=8),
-    'wrist_calibration_iterations': _numeric_column(dtype=tf.dtypes.uint16),
-    'wrist_calibration_values': _numeric_column(dtype=tf.dtypes.uint8, shape=7),
-}
+def get_feature_layer(cols: [] = None) -> tf.keras.layers.Dense:
 
+    feature_columns = {
+        'subject_id': _numeric_column(dtype=tf.uint16),
+        'subject_gender': _indicator_column(['m', 'f']),
+        'subject_age': _bucketized_column([18, 25, 30, 35, 40, 45, 50, 55, 60, 65], dtype=tf.uint8),
+        'subject_fitness': _bucketized_column([2, 4, 6, 8], dtype=tf.uint8),
+        'subject_handedness': _indicator_column(['l', 'r', 'a']),
+        'subject_impairment': _indicator_column(['t', 'f']),
+        'subject_wrist_circumference': _numeric_column(dtype=tf.float32),
+        'subject_forearm_circumference': _numeric_column(dtype=tf.float32),
+        'repetition': _numeric_column(dtype=tf.uint16),
+        'reading_count': _numeric_column(dtype=tf.uint32),
+        'readings':  _numeric_column(dtype=tf.dtypes.uint8, shape=15),
+        'arm_calibration_iterations': _numeric_column(dtype=tf.uint16),
+        'arm_calibration_values': _numeric_column(dtype=tf.dtypes.uint8, shape=8),
+        'wrist_calibration_iterations': _numeric_column(dtype=tf.uint16),
+        'wrist_calibration_values': _numeric_column(dtype=tf.dtypes.uint8, shape=7),
+        'timedelta': _numeric_column(dtype=tf.uint32),
+    }
 
-def _categorical(data: []):
-    numerical_map = {x: i for i, x in enumerate(set(data))}
-    numerical_data = [numerical_map[x] for x in data]
-    return tf.keras.utils.to_categorical(numerical_data)
+    if not cols:
+        cols = feature_columns.keys()
 
-
-# the columns present in the database that can be used as a label
-# each label can be associated with a preprocessing function
-LABEL_COLUMNS = {
-    'gesture': _categorical
-}
-
-
-def get_feature_layer(dataset: tf.data.Dataset) -> tf.keras.layers.Dense:
-    feature_columns = [FEATURE_COLUMNS[key](
-        key) for key in dataset.element_spec[0].keys()]
-    return tf.keras.layers.DenseFeatures(feature_columns)
-
-
-def get_data(fcols: [], lcol: str) -> tf.data.Dataset:
-    """
-    Retreives data from database.
-    The dataset should be batched before attempting to use it as input for a model.
-    """
-
-    # validate feature- and label columns
-    if not set(fcols).issubset(FEATURE_COLUMNS.keys()):
+    if not set(cols).issubset(feature_columns.keys()):
         exit(
-            f"One or more invalid feature columns, valid feature columns are {', '.join(FEATURE_COLUMNS)}.")
+            f"One or more invalid feature column names, valid feature column names are {', '.join(feature_columns.keys())}.")
 
-    if lcol not in LABEL_COLUMNS.keys():
-        exit(
-            f"Label column invalid, valid label columns are {', '.join(LABEL_COLUMNS)}.")
-
-    # combine the column names
-    colnames = set([*fcols, lcol])
-
-    # query the database for the columns
-    cur = Database().query(
-        f"SELECT {','.join(colnames)} FROM training")
-
-    # construct a data dictionary
-    data_dict = defaultdict(list)
-    [[data_dict[feature].append(
-        row[index]) for index, feature in enumerate(colnames)] for row in cur]
-    data_dict = dict(data_dict)
-
-    # pop the labels
-    labels = data_dict.pop(lcol)
-
-    # preprocess the labels if preprocessing func exists
-    if LABEL_COLUMNS[lcol] is not None:
-        labels = LABEL_COLUMNS[lcol](labels)
-
-    # construct dataset
-    dataset = tf.data.Dataset.from_tensor_slices((data_dict, labels))
-
-    return dataset
+    return tf.keras.layers.DenseFeatures([feature_columns[col](col) for col in cols])
 
 
-get_data(['readings'], 'gesture')
+def get_data(shuffle=True, test=0.2):
+    """
+    Retreives the human gestures dataset.
+    """
+    fname = 'hgest.tar.gz'
+    origin = 'https://storage.googleapis.com/exoskelebox/hgest.tar.gz'
+    path: str = tf.keras.utils.get_file(fname, origin, extract=True)
+    path = path.rsplit('.', 2)[0]
+    files = glob.glob(path + '/*.tfrecord')
+
+    if shuffle:
+        random.shuffle(files)
+
+    num_test = int(test * len(files))
+    train_files, test_files = files[num_test:], files[:num_test]
+    print(len(train_files))
+    print(len(test_files))
+    train = tf.data.TFRecordDataset(filenames=files).map(
+        _parse_function, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    test = tf.data.TFRecordDataset(filenames=files).map(
+        _parse_function, num_parallel_calls=tf.data.experimental.AUTOTUNE).cache()
+
+    return train, test
+
+
+def benchmark(dataset, num_epochs=2):
+    start_time = time.perf_counter()
+    for epoch_num in range(num_epochs):
+        for sample in dataset:
+            # Performing a training step
+            time.sleep(0.01)
+    tf.print("Execution time:", time.perf_counter() - start_time)
+
+
+train, test = get_data()
