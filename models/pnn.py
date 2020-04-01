@@ -22,11 +22,12 @@ class PNN_Adapter(tf.keras.layers.Layer):
         return x
         
 class PNN_Model(tf.keras.Model):
-    def __init__(self, layer_info, previous=None):
+    def __init__(self, layer_info, feature_layer=None, previous=None):
         super(PNN_Model, self).__init__()
         self._layerinfo=layer_info
         self.layer_outputs=[None for _ in layer_info]
         self.previous=previous
+        self.feature_layer = feature_layer
 
     def build(self, input_shape):
         self.core_layers = [layer_info['type'](units=layer_info['units'], activation=layer_info['activation']) for layer_info in self._layerinfo]
@@ -53,6 +54,7 @@ class PNN_Model(tf.keras.Model):
                 pretrained(y)
                 pretrained_outputs.append(pretrained.layer_outputs)
 
+        y = self.feature_layer(y)
         for i in range(len(self.core_layers)):
             if self.previous and i >= 1: # First layer doesnt get input from pretrained models
                 adapted_pretrained_outputs = [self.adapter_layers[j][i-1](pretrained_outputs[j][i-1]) for j in range(len(pretrained_outputs))]
