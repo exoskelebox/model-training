@@ -3,7 +3,6 @@ from utils.data_utils import fraction_train_test_split, feature_train_test_split
 import tensorflow as tf
 import statistics
 from models import pnn
-layers = [{'type':tf.keras.layers.Dense, 'units':2, 'activation':'relu'} for i in range(3)]
 train, test = human_gestures.get_data(human_gestures.subject_paths[0], 3, batch_size=1024)
 
 feature_layer = human_gestures.get_feature_layer([
