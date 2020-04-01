@@ -3,7 +3,7 @@ from utils.data_utils import fraction_train_test_split, feature_train_test_split
 import tensorflow as tf
 import statistics
 from models import pnn
-train, test = human_gestures.get_data(human_gestures.subject_paths[0], 3, batch_size=1024)
+#train, test = human_gestures.get_data(human_gestures.subject_paths[0], 3, batch_size=1024)
 
 feature_layer = human_gestures.get_feature_layer([
     'subject_gender',
@@ -72,58 +72,40 @@ layers = [
     {'type':tf.keras.layers.Dense, 'units':18, 'activation':'softmax'}]
 
 
+previous = []
+results = {}
+        
+for rep in range(5):
+    results[rep] = {}
+    for i in range(len(human_gestures.subject_paths)):
+        train, test = human_gestures.get_data(human_gestures.subject_paths[i], rep, batch_size=1024)
 
-model = pnn.PNN_Model(layers, feature_layer=feature_layer)
+        model = pnn.PNN_Model(layers, feature_layer=feature_layer, previous=previous)
 
-print('Model constructed. Compiling...')
-model.compile(optimizer='adam',
-              loss='sparse_categorical_crossentropy',
-              metrics=['accuracy'])
+        print('Model constructed. Compiling...')
+        model.compile(optimizer='adam',
+                    loss='sparse_categorical_crossentropy',
+                    metrics=['accuracy'])
 
-print('Model compiled.')
-print('Creating callbacks...')
-earlystop_callback = tf.keras.callbacks.EarlyStopping(
-    monitor='val_accuracy', min_delta=0.0001,
-    patience=10)
+        print('Model compiled.')
+        print('Creating callbacks...')
+        earlystop_callback = tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy', min_delta=0.0001,
+            patience=10)
 
-print('Callbacks created.')
-print('Fitting model...')
-model.fit(train,
-          validation_data=test,
-          epochs=20,
-          callbacks=[earlystop_callback])
+        print('Callbacks created.')
+        print('Fitting model...')
+        model.fit(train,
+                validation_data=test,
+                epochs=20,
+                callbacks=[earlystop_callback])
 
-print('Model fitted.')
-print('Evaluating model...')
-result = model.evaluate(test)
-print(result)
-print('Model Evaluated.')
-previous = [model]
-for i in range(3):
-    model2 = pnn.PNN_Model(layers, feature_layer=feature_layer, previous=previous)
+        print('Model fitted.')
+        print('Evaluating model...')
+        result = model.evaluate(test)
+        print(result)
+        results[rep][i] = result
+        print('Model Evaluated.')
+        previous.append(model)
 
-    print('Model constructed. Compiling...')
-    model2.compile(optimizer='adam',
-                loss='sparse_categorical_crossentropy',
-                metrics=['accuracy'])
-
-    print('Model compiled.')
-    print('Creating callbacks...')
-    earlystop_callback = tf.keras.callbacks.EarlyStopping(
-        monitor='val_accuracy', min_delta=0.0001,
-        patience=10)
-
-    print('Callbacks created.')
-    print('Fitting model...')
-    model2.fit(train,
-            validation_data=test,
-            epochs=20,
-            callbacks=[earlystop_callback])
-
-    print('Model fitted.')
-    print('Evaluating model...')
-    result = model2.evaluate(test)
-    print(result)
-    print('Model Evaluated.')
-    previous.append(model)
-
+print(results)

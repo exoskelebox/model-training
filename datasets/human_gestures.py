@@ -139,4 +139,4 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     return _build_dataset(train_files, batch_size), _build_dataset([test_file], batch_size)
 
 
-print(get_data(subject_paths[0], 2))
+#print(get_data(subject_paths[0], 2))
