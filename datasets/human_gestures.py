@@ -5,7 +5,14 @@ import tensorflow as tf
 import time
 from collections import defaultdict
 import glob
-import random
+import os
+
+fname = 'hgest.tar.gz'
+origin = 'https://storage.googleapis.com/exoskelebox/hgest.tar.gz'
+path: str = tf.keras.utils.get_file(
+    fname, origin, extract=True, file_hash='c341610f55f32896854a08dcfa1bd022')
+path = path.rsplit('.', 2)[0]
+subject_paths = [f.path for f in os.scandir(path) if f.is_dir()]
 
 feature_description = {
     'subject_id': tf.io.FixedLenFeature([], tf.int64),
@@ -43,9 +50,9 @@ def _parse_batch(example_protos):
     return parsed_examples, parsed_examples.pop('label')
 
 
-def _build_dataset(filenames, batch_size=64):
+def _build_dataset(files, batch_size=64):
     return tf.data.Dataset.from_tensor_slices(
-        filenames
+        files
     ).interleave(
         tf.data.TFRecordDataset,
         cycle_length=tf.data.experimental.AUTOTUNE,
@@ -120,20 +127,16 @@ def get_feature_layer(cols: [] = None) -> tf.keras.layers.Dense:
     return tf.keras.layers.DenseFeatures([feature_columns[col](col) for col in cols])
 
 
-def get_data(shuffle=True, test=0.2, batch_size=64):
+def get_data(subject_path: str, test_repitition: int, batch_size=64):
     """
     Retreives the human gestures dataset.
     """
-    fname = 'hgest.tar.gz'
-    origin = 'https://storage.googleapis.com/exoskelebox/hgest.tar.gz'
-    path: str = tf.keras.utils.get_file(fname, origin, extract=True)
-    path = path.rsplit('.', 2)[0]
-    files = glob.glob(path + '/*.tfrecord')
+    files = glob.glob(subject_path + '/*.tfrecord')
 
-    if shuffle:
-        random.shuffle(files)
+    test_file = files.pop(test_repitition)
+    train_files = files
 
-    num_test = int(test * len(files))
-    train_files, test_files = files[num_test:], files[:num_test]
+    return _build_dataset(train_files, batch_size), _build_dataset([test_file], batch_size)
 
-    return _build_dataset(train_files, batch_size), _build_dataset(test_files, batch_size)
+
+print(get_data(subject_paths[0], 2))
