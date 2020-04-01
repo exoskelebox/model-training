@@ -23,7 +23,7 @@ class PNN_Adapter(tf.keras.layers.Layer):
         
 class PNN_Model(tf.keras.Model):
     def __init__(self, layer_info, previous=None):
-        super(Test_Model, self).__init__()
+        super(PNN_Model, self).__init__()
         self._layerinfo=layer_info
         self.layer_outputs=[None for _ in layer_info]
         self.previous=previous
