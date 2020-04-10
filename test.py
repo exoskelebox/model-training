@@ -2,7 +2,8 @@ from datasets import human_gestures
 from utils.data_utils import fraction_train_test_split, feature_train_test_split
 import tensorflow as tf
 import statistics
-from models import pnn
+from models.pnn import PNN_Column, PNN_Model
+import os
 #train, test = human_gestures.get_data(human_gestures.subject_paths[0], 3, batch_size=1024)
 
 feature_layer = human_gestures.get_feature_layer([
@@ -61,51 +62,57 @@ results = {}
     results[i] = result
     print(result)
     print('Model Evaluated.')
-
+-
 print(results)
 
 print("Avg. ACC = {}".format(statistics.mean(
     [acc for key, (loss, acc) in results.items()]))) """
-layers = [
+
+
+adapters = {'type':tf.keras.layers.Dense, 'units':16, 'activation':'relu'} 
+core = [
     {'type':tf.keras.layers.Dense, 'units':64, 'activation':'relu'},
     {'type':tf.keras.layers.Dense, 'units':64, 'activation':'relu'},
     {'type':tf.keras.layers.Dense, 'units':18, 'activation':'softmax'}]
+layer_info = {'core':core, 'adapters':adapters}
 
-
-previous = []
+columns = []
 results = {}
-        
-for rep in range(5):
-    results[rep] = {}
-    for i in range(len(human_gestures.subject_paths)):
-        train, test = human_gestures.get_data(human_gestures.subject_paths[i], rep, batch_size=1024)
+sequence = []
+for i in range(len(human_gestures.subject_paths)):
+    sequence.append(i)
+    train, test = human_gestures.get_data(human_gestures.subject_paths[i], 1, batch_size=1024)
 
-        model = pnn.PNN_Model(layers, feature_layer=feature_layer, previous=previous)
+    column = PNN_Column(layer_info, generation=i)
+    columns.append(column)
+    model = PNN_Model(feature_layer=feature_layer, columns=columns)
 
-        print('Model constructed. Compiling...')
-        model.compile(optimizer='adam',
-                    loss='sparse_categorical_crossentropy',
-                    metrics=['accuracy'])
+    print('Model constructed. Compiling...')
+    model.compile(optimizer='adam',
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy'])
 
-        print('Model compiled.')
-        print('Creating callbacks...')
-        earlystop_callback = tf.keras.callbacks.EarlyStopping(
-            monitor='val_accuracy', min_delta=0.0001,
-            patience=10)
+    print('Model compiled.')
+    print('Creating callbacks...')
+    earlystop_callback = tf.keras.callbacks.EarlyStopping(
+        monitor='val_accuracy', min_delta=0.0001,
+        patience=3)
 
-        print('Callbacks created.')
-        print('Fitting model...')
-        model.fit(train,
-                validation_data=test,
-                epochs=20,
-                callbacks=[earlystop_callback])
+    print('Callbacks created.')
+    print('Fitting model...')
+    model.fit(train,
+            validation_data=test,
+            epochs=5,
+            callbacks=[earlystop_callback])
 
-        print('Model fitted.')
-        print('Evaluating model...')
-        result = model.evaluate(test)
-        print(result)
-        results[rep][i] = result
-        print('Model Evaluated.')
-        previous.append(model)
-
-print(results)
+    print('Model fitted.')
+    print('Evaluating model...')
+    result = model.evaluate(test)
+    print(result)
+    results[i] = result
+    print('Model Evaluated.')
+    model.summary()
+    # Save the weights
+    save_path = f"pnn/subject_{'_'.join([str(n) for n in sequence])}"
+    #save_dir = os.path.dirname(save_path)
+    column.save_weights(save_path)
