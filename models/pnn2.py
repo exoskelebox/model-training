@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import tensorflow as tf
 import numpy as np
+from typing import List
 
 
 class PNN_Adapter(tf.keras.layers.Layer):
@@ -23,46 +24,31 @@ class PNN_Adapter(tf.keras.layers.Layer):
 
 
 class PNN_Column(tf.keras.Model):
-    def __init__(self, layer_info: dict, generation: int = 0):
+    def __init__(self, adapter_layers: List[tf.keras.layers.Layer], core_layers: List[tf.keras.layers.Layer], generation: int = 0):
         super(PNN_Column, self).__init__()
-        self._layerinfo = layer_info
-        self.layer_outputs = [None for _ in layer_info['core']]
+        self.core_layers = core_layers
+        self.adapter_layers = adapter_layers
         self.generation = generation
-
-    def build(self, input_shape):
-        core_info = self._layerinfo['core']
-        self.core_layers = [layer_info['type'](
-            units=layer_info['units'],
-            activation=layer_info['activation'])
-            for layer_info in core_info]
-
-        adapter_info = self._layerinfo['adapters']
-        self.adapter_layers = [[None for j in range(len(self.core_layers)-1)]
-                               # First layer doesnt get input from pretrained models
-                               for i in range(self.generation)]
-
-        for i in range(self.generation):
-            for j in range(len(self.core_layers)-1):
-                # First layer doesnt get input from pretrained models
-                adapter = adapter_info['type'](
-                    units=adapter_info['units'],
-                    activation=adapter_info['activation'])
-                adapter.build(core_info[j]['units'])
-                self.adapter_layers[i][j] = adapter
+        self.layer_outputs = []
 
     def call(self, inputs):
-        y = inputs[0]
-        pretrained_outputs = inputs[1:]
-        for i in range(len(self.core_layers)):
-            if self.generation >= 1 and i >= 1:
-                # First layer doesnt get input from pretrained models
-                adapted_pretrained_outputs = [self.adapter_layers[j][i-1](
-                    pretrained_outputs[j][i-1]) for j in range(self.generation)]
-                y = tf.keras.layers.concatenate(
-                    [y, *adapted_pretrained_outputs])
-            y = self.core_layers[i](y)
-            self.layer_outputs[i] = y
-        return self.layer_outputs
+        core_layers = enumerate(self.core_layers)
+        i, core_layer = next(core_layers)
+        x = core_layer(inputs[i])
+        y = [x]
+        for i, core_layer in core_layers:
+            if self.generation >= 1:
+                k = [inputs[j+1][i-1] for j in range(self.generation)]
+                for adapter_layer in iter(self.adapter_layers):
+                    k = adapter_layer(k)
+                x = tf.keras.layers.concatenate(
+                    [x, *k])
+                x = core_layer(x)
+            else:
+                x = core_layer(x)
+            y.append(x)
+
+        return y
 
 
 class PNN_Model(tf.keras.Model):
@@ -70,7 +56,6 @@ class PNN_Model(tf.keras.Model):
         super(PNN_Model, self).__init__()
         self.columns = columns
         self.feature_layer = feature_layer
-        self.column_outputs = None
         for column in self.columns[:-1]:
             # Freeze all but the last column
             column.trainable = False
@@ -79,7 +64,6 @@ class PNN_Model(tf.keras.Model):
         y = [self.feature_layer(inputs)]
         for column in self.columns:
             y.append(column(y))
-        self.column_outputs = y
         # return the output of the last layer of the last column
         return y[-1][-1]
 
@@ -95,24 +79,21 @@ def test_adapter():
 
 def test_layered():
     x = tf.ones((2, 2))
-    adapters = {
-        'type': tf.keras.layers.Dense,
-        'units': 3,
-        'activation': 'relu'}
-    core = [{
-        'type': tf.keras.layers.Dense,
-        'units': 5,
-        'activation': 'relu'}
-        for i in range(3)]
-    layer_info = {'core': core, 'adapters': adapters}
+    adapter = [tf.keras.layers.Dense(16, 'relu')]
+    core = [tf.keras.layers.Dense(
+        64, 'relu'), tf.keras.layers.Dense(64, 'relu'), tf.keras.layers.Dense(1, 'softmax')]
 
-    column_0 = PNN_Column(layer_info)
+    column_0 = PNN_Column(adapter, core)
     model_0 = PNN_Model(columns=[column_0])
     model_0.build(x.shape)
+    model_0.summary()
 
-    column_1 = PNN_Column(layer_info, generation=1)
+    column_1 = PNN_Column(adapter, core, generation=1)
     model_1 = PNN_Model(columns=[column_0, column_1])
     model_1.build(x.shape)
+    model_1.summary()
+    """
+
 
     # model.build(x.shape)
     #model.outputs=[l.output for l in model.core_layers]
@@ -128,7 +109,7 @@ def test_layered():
     print(f"Summary: column_0")
     column_0.summary()
     print(f"Summary: column_1")
-    column_1.summary()
+    column_1.summary() """
 
 
 if __name__ == "__main__":
