@@ -137,3 +137,19 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     train_files = files
 
     return _build_dataset(train_files, batch_size), _build_dataset([test_file], batch_size)
+
+def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size=64):
+    """
+    Retreives the human gestures dataset. Returns the combined data for all subjects except the one given.
+    """
+    test_files = []
+    train_files = []
+    for subject_path in subject_paths:
+        if subject_path == excluded_subject_path:
+            continue
+        files = glob.glob(subject_path + '/*.tfrecord')
+
+        test_files.append(files.pop(test_repitition))
+        train_files += files
+
+    return _build_dataset(train_files, batch_size), _build_dataset(test_files, batch_size)
