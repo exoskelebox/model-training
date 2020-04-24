@@ -10,7 +10,7 @@ tf.autograph.set_verbosity(3)
 
 from models.pnn import PNN_Column, PNN_Model
 from models_config.dense_config import old_dense_model
-from models_config.pnn_config import pnn_config, pnn_model, create_column
+from models_config.pnn_config import PNN
 from utils.data_utils import fraction_train_test_split, feature_train_test_split
 from datasets import normalized_human_gestures as human_gestures
 import statistics
@@ -31,56 +31,72 @@ feature_layer = human_gestures.get_feature_layer([
     'arm_calibration_values'
 ])
 
+def run_models(selected_models = [], reps=5, batch_size=1024, epoch=5):
 
-
-def run_models(selected_models = [], reps=5):
-    subjects_accuracy = []
-    columns = []
-    
     models_config = {
         'old_dense' : lambda: old_dense_model(),
-        'pnn'   : lambda: pnn_model(*args)
-    }
-    
-    subject_paths = human_gestures.subject_paths
-    random.shuffle(subject_paths)
+        'pnn'   : lambda: PNN(reps=reps, batch_size=batch_size, epoch=epoch)
+        }
+
 
     for current_model in selected_models:
-        for i in range(len(subject_paths)):
-            k_fold = []
-            print(f"\ntraining on participant: {i}")
-            try:
-                columns.append(create_column(generation_index = i, layer_info=pnn_config()))
-                args = (i, columns)
+        
+        model = models_config[current_model]()
+
+        results = model.run_model()
+
+        print(results)
+
+        
+
+# def run_models(selected_models = [], reps=5, batch_size=1024, epoch=5):
+#     subjects_accuracy = []
+#     columns = []
+    
+#     models_config = {
+#         'old_dense' : lambda: old_dense_model(),
+#         'pnn'   : lambda: pnn_model(*args)
+#     }
+    
+#     subject_paths = human_gestures.subject_paths
+#     random.shuffle(subject_paths)
+
+#     for current_model in selected_models:
+#         for i in range(len(subject_paths)):
+#             k_fold = []
+#             print(f"\ntraining on participant: {i}")
+#             try:
+#                 columns.append(create_column(generation_index = i, layer_info=pnn_config()))
+#                 args = (i, columns)
                 
-                model = models_config[current_model]()
+#                 model = models_config[current_model]()
                 
-                for n in range(reps):
-                    train, test = human_gestures.get_data(
-                        human_gestures.subject_paths[i], n, 1024)
+#                 for n in range(reps):
+#                     train, test = human_gestures.get_data(
+#                         human_gestures.subject_paths[i], n, 1024)
 
-                    early_stop_callback = early_stop()
-                    compile_model(model)
+#                     early_stop_callback = early_stop()
+#                     compile_model(model)
 
-                    model.fit(train,
-                                validation_data=test,
-                                epochs=5,
-                                callbacks=[early_stop_callback])
+#                     model.fit(train,
+#                                 validation_data=test,
+#                                 epochs=5,
+#                                 callbacks=[early_stop_callback])
 
-                    result = model.evaluate(test)
-                    print(f"\nModel Evaluated.")
+#                     result = model.evaluate(test)
+#                     print(f"\nModel Evaluated.")
 
-                    k_fold.append(result[-1])
+#                     k_fold.append(result[-1])
 
-                average = statistics.mean(k_fold)
-                subjects_accuracy.append(average)
+#                 average = statistics.mean(k_fold)
+#                 subjects_accuracy.append(average)
 
-            except KeyError:
-                print('Error: Invalid model "%s"' % current_model)
-                continue
+#             except KeyError:
+#                 print('Error: Invalid model "%s"' % current_model)
+#                 continue
 
-        total_average = statistics.mean(subjects_accuracy)
-        print(f"model's average for all participants: {total_average}")
+#         total_average = statistics.mean(subjects_accuracy)
+#         print(f"model's average for all participants: {total_average}")
 
 
 

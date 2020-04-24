@@ -1,6 +1,8 @@
 import tensorflow as tf
 from models.pnn import PNN_Column, PNN_Model
 from datasets import normalized_human_gestures as human_gestures
+import random
+import statistics
 
 feature_layer = human_gestures.get_feature_layer([
     'subject_gender',
@@ -17,19 +19,76 @@ feature_layer = human_gestures.get_feature_layer([
     'arm_calibration_values'
 ])
 
+class PNN:
 
-def pnn_model(generation_index, columns):
-    return PNN_Model(feature_layer=feature_layer, columns=columns)
+    def __init__(self, reps, batch_size, epoch):
+        self.reps = reps
+        self.epoch = epoch
+        self.batch_size = batch_size
+        self.columns = []
+        self.subject_paths = human_gestures.subject_paths
+        self.layer_info = self._pnn_config()
 
-def create_column(generation_index, layer_info):
-    return PNN_Column(layer_info, generation=generation_index)
 
-def pnn_config():
-    adapters = {'type': tf.keras.layers.Dense, 'units': 16, 'activation': 'relu'}
+
+    def run_model(self):
+        subjects_accuracy = []
+        random.shuffle(self.subject_paths)
+
+        for i in range(len(self.subject_paths)):
+            k_fold = []
+            result = []
+            
+            self._create_column(i, self.layer_info)
+            model = self._pnn_model(i)
+           
+            for n in range(self.reps):
+                train, test = human_gestures.get_data(
+                        human_gestures.subject_paths[i], n, self.batch_size)
+                
+                early_stop_callback = self._early_stop()
+                self._compile_model(model)
+
+                model.fit(train,
+                    validation_data=test,
+                    epochs=self.epoch,
+                    callbacks=[early_stop_callback])
+                result = model.evaluate(test)
+                k_fold.append(result[-1])
+
+            average = statistics.mean(k_fold)
+            subjects_accuracy.append(average)
+        
+        total_average = statistics.mean(subjects_accuracy)
+        print(f"model's average for all participants: {total_average}")
+        return (total_average, subjects_accuracy)
     
-    core = [
-    {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
-    {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
-    {'type': tf.keras.layers.Dense, 'units': 18, 'activation': 'softmax'}]
 
-    return {'core': core, 'adapters': adapters}
+    def _pnn_model(self,generation_index):
+        return PNN_Model(feature_layer=feature_layer, columns=self.columns)
+
+    def _create_column(self,generation_index, layer_info):
+        column = PNN_Column(layer_info, generation=generation_index)
+        self.columns.append(column)
+
+    def _pnn_config(self):
+        adapters = {'type': tf.keras.layers.Dense, 'units': 16, 'activation': 'relu'}
+        
+        core = [
+        {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
+        {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
+        {'type': tf.keras.layers.Dense, 'units': 18, 'activation': 'softmax'}]
+
+        return {'core': core, 'adapters': adapters}
+
+    def _compile_model(self, model):
+        model.compile(optimizer='adam',
+                    loss='sparse_categorical_crossentropy',
+                    metrics=['accuracy'])
+        print('Model compiled.')
+
+    def _early_stop(self):
+        print('Creating callbacks...')
+        return tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy', min_delta=0.0001,
+            patience=3)

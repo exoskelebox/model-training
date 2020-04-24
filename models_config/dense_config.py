@@ -17,26 +17,31 @@ feature_layer = human_gestures.get_feature_layer([
     # 'arm_calibration_values'
 ])
 
+class old_dense_model:
 
-def old_dense_model():
-    model = tf.keras.Sequential([
-        feature_layer,
-        tf.keras.layers.Dense(32, activation='relu'),
-        tf.keras.layers.Dropout(0.2),
-        tf.keras.layers.Dense(32, activation='relu'),
-        tf.keras.layers.Dropout(0.2),
-        tf.keras.layers.Dense(18, activation='softmax')
-    ])
-    print('Model constructed. Compiling...')
-    return model
+    def __init__(self):
+        pass
 
+    def _old_dense_model(self):
+        self.model = tf.keras.Sequential([
+            feature_layer,
+            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(18, activation='softmax')
+        ])
+        print('Model constructed. Compiling...')
+    
+    def _compile_model(self, model):
+        self.model.compile(optimizer='adam',
+                    loss='sparse_categorical_crossentropy',
+                    metrics=['accuracy'])
+        print('Model compiled.')
 
-if __name__ == "__main__":
-    old_dense_model()
-    # train, test = human_gestures.get_data(human_gestures.subject_paths[0], 0, 1024)
-    # i = 0
-    # for feature_batch, label_batch in train:
-    # print('Every feature:', list(feature_batch.keys()))
-    # print('A batch of calibration:', feature_batch['wrist_calibration_values'])
-    # print('A batch of calibration:', feature_batch['arm_calibration_values'])
-    # print('A batch of targets:', label_batch )
+    def _early_stop(self):
+        print('Creating callbacks...')
+        return tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy', min_delta=0.0001,
+            patience=3)
+
