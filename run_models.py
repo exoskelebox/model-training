@@ -1,3 +1,11 @@
+
+import os
+import logging
+
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+os.environ["KMP_AFFINITY"] = "noverbose"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import tensorflow as tf
 import random
 import statistics
@@ -6,12 +14,6 @@ from utils.data_utils import fraction_train_test_split, feature_train_test_split
 from models_config.pnn_config import PNN
 from models_config.dense_config import old_dense_model
 from models.pnn import PNN_Column, PNN_Model
-import os
-import logging
-logging.getLogger('tensorflow').setLevel(logging.ERROR)
-os.environ["KMP_AFFINITY"] = "noverbose"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 tf.get_logger().setLevel('ERROR')
 tf.autograph.set_verbosity(3)
 
