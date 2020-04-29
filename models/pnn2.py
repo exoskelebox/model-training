@@ -70,28 +70,28 @@ class PNN_Model(tf.keras.Model):
 
 def test_adapter():
     x = tf.ones((5, 5))
-    adapter = PNN_Adapter(units=5)
+    adapter = PNN_Adapter(units=2)
     print(x)
     y = adapter(x)
     print(y.numpy())
     print(adapter.weights)
 
 
-def test_layered():
-    x = tf.ones((2, 2))
-    adapter = [tf.keras.layers.Dense(16, 'relu')]
-    core = [tf.keras.layers.Dense(
-        64, 'relu'), tf.keras.layers.Dense(64, 'relu'), tf.keras.layers.Dense(1, 'softmax')]
+# def test_layered():
+#     x = tf.ones((2, 2))
+#     adapter = [tf.keras.layers.Dense(16, 'relu')]
+#     core = [tf.keras.layers.Dense(
+#         64, 'relu'), tf.keras.layers.Dense(64, 'relu'), tf.keras.layers.Dense(1, 'softmax')]
 
-    column_0 = PNN_Column(adapter, core)
-    model_0 = PNN_Model(columns=[column_0])
-    model_0.build(x.shape)
-    model_0.summary()
+#     column_0 = PNN_Column(adapter, core)
+#     model_0 = PNN_Model(columns=[column_0])
+#     model_0.build(x.shape)
+#     model_0.summary()
 
-    column_1 = PNN_Column(adapter, core, generation=1)
-    model_1 = PNN_Model(columns=[column_0, column_1])
-    model_1.build(x.shape)
-    model_1.summary()
+#     column_1 = PNN_Column(adapter, core, generation=1)
+#     model_1 = PNN_Model(columns=[column_0, column_1])
+#     model_1.build(x.shape)
+#     model_1.summary()
     """
 
 
@@ -113,4 +113,6 @@ def test_layered():
 
 
 if __name__ == "__main__":
-    test_layered()
+    # print("HELLO=!")
+    test_adapter()
+    # test_layered()
