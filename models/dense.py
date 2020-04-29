@@ -30,7 +30,9 @@ class Dense(Model):
                 train, test = human_gestures.get_data(
                     human_gestures.subject_paths[i], n, self.batch_size)
 
-                early_stop_callback = self._early_stop()
+                early_stop = tf.keras.callbacks.EarlyStopping(
+                    monitor='val_accuracy', min_delta=0.0001,
+                    patience=3)
 
                 model.compile(optimizer='adam',
                               loss='sparse_categorical_crossentropy',
@@ -39,7 +41,7 @@ class Dense(Model):
                 model.fit(train,
                           validation_data=test,
                           epochs=self.epoch,
-                          callbacks=[early_stop_callback])
+                          callbacks=[early_stop])
 
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
