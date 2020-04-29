@@ -4,24 +4,24 @@ from datasets import normalized_human_gestures as human_gestures
 import time
 import os
 
-feature_layer = human_gestures.get_feature_layer([
-    'subject_gender',
-    'subject_age',
-    'subject_fitness',
-    'subject_handedness',
+features = [
+    #'subject_gender',
+    #'subject_age',
+    #'subject_fitness',
+    #'subject_handedness',
     'subject_wrist_circumference',
     'subject_forearm_circumference',
     #'repetition',
     'readings',
-    'wrist_calibration_iterations',
-    'wrist_calibration_values',
-    'arm_calibration_iterations',
-    'arm_calibration_values'
-])
+    #'wrist_calibration_iterations',
+    #'wrist_calibration_values',
+    #'arm_calibration_iterations',
+    #'arm_calibration_values'
+]
+feature_layer = human_gestures.get_feature_layer(features)
 
-simple_feature_layer = human_gestures.get_feature_layer([
-    'readings'
-])
+simple_features = ['readings']
+simple_feature_layer = human_gestures.get_feature_layer(simple_features)
 
 """
 adapter = [tf.keras.layers.Dense(16, 'relu')]
@@ -63,7 +63,7 @@ def train_and_eval(model, train, test):
     earlystop_callback = tf.keras.callbacks.EarlyStopping(
         monitor='val_accuracy', 
         min_delta=0.0001,
-        patience=5,
+        patience=10,
         restore_best_weights=True)
 
     print('Callbacks created.')
@@ -79,46 +79,44 @@ def train_and_eval(model, train, test):
     print(result)
     return result
 
-model_desc = f"dense_32_32_18"
+model_desc = f"pnn_C_2x64-2x32_A_16-mixed_features"
 t = time.strftime('%m-%d-%H%M%S', time.localtime(time.time()))
 file_name = f"{model_desc} - {t}.txt"
 path = os.path.join('results', file_name)
 
 with open(path,"w+") as f:
-    subjects = enumerate(subject_paths)
-    # for each repetition
-    for rep in range(num_repetitions):
-        for i in range(num_subjects):
-            
-            print(f'Loading data for repetition {rep}, subject {i}:')
-            train_cur, test_cur = human_gestures.get_data(subject_paths[i], rep, batch_size=1024)
-            #print('Loading data for other subjects:')
-            #train_old, test_old = human_gestures.get_data_except(subject_paths[i], rep, batch_size=1024)
-            print(f'Data loading complete.')
-
-            column = PNN_Column(layer_info, generation=0)
-            columns = [column]
-
-            model = PNN_Model(feature_layer=simple_feature_layer, columns=columns)
-
-            results[i][rep]['column'] = train_and_eval(model, train_cur, test_cur)
-            model.summary()
+    f.write(f"Model: PNN  2x32(ReLU)\n")
+    f.write(f"Features: Pretrained: {features} - Current: {simple_features} \n")
 
 
-            seq = tf.keras.Sequential([
-                feature_layer,
-                tf.keras.layers.Dense(32, activation='relu'),
-                #tf.keras.layers.Dropout(0.2),
-                tf.keras.layers.Dense(32, activation='relu'),
-                #tf.keras.layers.Dropout(0.2),
-                tf.keras.layers.Dense(18, activation='softmax')
-            ])
-            results[i][rep]['sequential'] = train_and_eval(seq, train_cur, test_cur)
-            seq.summary()
-            print('Models Evaluated.')
+subjects = enumerate(subject_paths)
+# for each repetition
+for rep in range(1):
+    for i in range(num_subjects):
+         
+        print(f'Loading data for repetition {rep}, subject {i}:')
+        train_cur, test_cur = human_gestures.get_data(subject_paths[i], rep, batch_size=1024)
+        print('Loading data for other subjects:')
+        train_old, test_old = human_gestures.get_data_except(subject_paths[i], rep, batch_size=1024)
+        print(f'Data loading complete.')
 
-            diff = results[i][rep]['column'][1] - results[i][rep]['sequential'][1]
-            results[i][rep]['diff'] = diff
+        old_column = PNN_Column(layer_info, generation=0, feature_layer=feature_layer)
+        columns = [old_column]
+        old_model = PNN_Model(columns=columns)
+        results[i][rep]['pretrained'] = train_and_eval(old_model, train_old, test_old)
 
+        column = PNN_Column(layer_info2, generation=1, feature_layer=simple_feature_layer)
+        columns = [old_column, column]
+        model = PNN_Model(columns=columns)
+        results[i][rep]['current'] = train_and_eval(model, train_cur, test_cur)
 
-            f.write(f"Subject {i}, rep {rep}: {results[i][rep]}/n")
+        old_model.summary()            
+        model.summary()
+
+        print('Models Evaluated.')
+
+        #diff = results[i][rep]['column'][1] - results[i][rep]['sequential'][1]
+        #results[i][rep]['diff'] = diff
+
+        with open(path, "a+") as f:
+            f.write(f"Subject {i}, rep {rep}: {results[i][rep]}\n")
