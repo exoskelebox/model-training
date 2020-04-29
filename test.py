@@ -61,7 +61,6 @@ print(results)
 print("Avg. ACC = {}".format(statistics.mean(
     [acc for key, (loss, acc) in results.items()]))) """
 
-
 adapters = {'type': tf.keras.layers.Dense, 'units': 16, 'activation': 'relu'}
 core = [
     {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
