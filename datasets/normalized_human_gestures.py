@@ -193,5 +193,68 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     return train_dataset, val_dataset, test_dataset
 
 
+def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size=64):
+    """
+    Retreives the human gestures dataset. Returns the combined data for all subjects except the one given.
+    """
+    files = []
+
+    for subject_path in subject_paths:
+        if subject_path == excluded_subject_path:
+            continue
+        subject_files = glob.glob(subject_path + '/*.tfrecord')
+        files += subject_files
+
+    full_dataset = tf.data.Dataset\
+        .from_tensor_slices(files)\
+        .interleave(
+            tf.data.TFRecordDataset,
+            cycle_length=tf.data.experimental.AUTOTUNE,
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    train, val, test = [
+        subset\
+            .shuffle(2 ** 14)\
+            .batch(
+                batch_size=batch_size,
+                drop_remainder=True)\
+            .map(
+                map_func=_parse_batch,
+                num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+            .cache()\
+            .prefetch(tf.data.experimental.AUTOTUNE)
+        for subset in split(full_dataset, ratios=[8,1,1])]
+
+    return train, val, test
+
+def split(data, ratios=[1,1]):
+    """
+    Splits data according to provided ratios. Returns list of datasets.
+    """
+    ratio_sum = sum(ratios)
+    offset = 0
+    subsets = []
+
+    def is_subset(i, offset, ratio):
+        return (i + ratio_sum - offset) % ratio_sum < ratio
+    
+    def deenumerate(i, x):
+        return x
+
+    data = data.enumerate()
+    for ratio in ratios:
+        cond = lambda i, x: is_subset(i, offset, ratio) 
+
+        subset = data\
+            .filter(cond)\
+            .map(deenumerate)
+
+        subsets.append(subset)
+        offset += ratio
+
+    return subsets
+    
 if __name__ == "__main__":
-    train, val, test = get_data(subject_paths[0], 1)
+    subsets = get_data_except(subject_paths[0], 1)
+    for subset in subsets:
+        print(f"len: {len(list(subset.as_numpy_iterator()))}")
