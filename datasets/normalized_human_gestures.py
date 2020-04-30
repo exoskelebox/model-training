@@ -6,6 +6,7 @@ import time
 from collections import defaultdict
 import glob
 import os
+import random
 
 fname = 'normalized_hgest.tar.gz'
 origin = 'https://storage.googleapis.com/exoskelebox/normalized_hgest.tar.gz'
@@ -134,22 +135,63 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     files = glob.glob(subject_path + '/*.tfrecord')
 
     test_file = files.pop(test_repitition)
-    train_files = files
 
-    return _build_dataset(train_files, batch_size), _build_dataset([test_file], batch_size)
+    train_dataset = tf.data.Dataset\
+        .from_tensor_slices(files)\
+        .interleave(
+            tf.data.TFRecordDataset,
+            cycle_length=tf.data.experimental.AUTOTUNE,
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+        .shuffle(2 ** 14)\
+        .batch(
+            batch_size=batch_size,
+            drop_remainder=True)\
+        .map(
+            map_func=_parse_batch,
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+        .prefetch(tf.data.experimental.AUTOTUNE)
 
-def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size=64):
-    """
-    Retreives the human gestures dataset. Returns the combined data for all subjects except the one given.
-    """
-    test_files = []
-    train_files = []
-    for subject_path in subject_paths:
-        if subject_path == excluded_subject_path:
-            continue
-        files = glob.glob(subject_path + '/*.tfrecord')
+    test_dataset = tf.data.TFRecordDataset(test_file)
 
-        test_files.append(files.pop(test_repitition))
-        train_files += files
+    def is_test(i, x):
+        return i % 5 == 0
 
-    return _build_dataset(train_files, batch_size), _build_dataset(test_files, batch_size)
+    def is_val(i, x):
+        return not is_test(i, x)
+
+    def deenumerate(i, x):
+        return x
+
+    val_dataset = test_dataset\
+        .enumerate()\
+        .filter(is_val)\
+        .map(deenumerate)\
+        .cache()\
+        .shuffle(2 ** 14)\
+        .batch(
+            batch_size=batch_size,
+            drop_remainder=True)\
+        .map(
+            map_func=_parse_batch,
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+        .prefetch(tf.data.experimental.AUTOTUNE)
+
+    test_dataset = test_dataset\
+        .enumerate()\
+        .filter(is_test)\
+        .map(deenumerate)\
+        .shuffle(2 ** 14, reshuffle_each_iteration=False)\
+        .batch(
+            batch_size=batch_size,
+            drop_remainder=True)\
+        .map(
+            map_func=_parse_batch,
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+        .cache()\
+        .prefetch(tf.data.experimental.AUTOTUNE)
+
+    return train_dataset, val_dataset, test_dataset
+
+
+if __name__ == "__main__":
+    train, val, test = get_data(subject_paths[0], 1)
