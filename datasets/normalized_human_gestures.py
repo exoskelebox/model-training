@@ -214,7 +214,7 @@ def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size
 
     train, val, test = [
         subset\
-            .shuffle(2 ** 14)\
+            .shuffle(2 ** 19)\
             .batch(
                 batch_size=batch_size,
                 drop_remainder=True)\
@@ -255,6 +255,5 @@ def split(data, ratios=[1,1]):
     return subsets
     
 if __name__ == "__main__":
-    subsets = get_data_except(subject_paths[0], 1)
-    for subset in subsets:
-        print(f"len: {len(list(subset.as_numpy_iterator()))}")
+    train, val, test = get_data_except(subject_paths[0], 1)
+
