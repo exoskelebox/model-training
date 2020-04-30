@@ -52,4 +52,4 @@ def run_models(selected_models=[], reps=5, batch_size=1024, epoch=5):
 
 
 if __name__ == "__main__":
-    run_models(['dense'])
+    run_models(['dense'], 5, 1024, 100)
