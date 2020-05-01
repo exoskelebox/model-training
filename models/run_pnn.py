@@ -67,8 +67,9 @@ class PNN(base_config.base):
 
         return (total_average, subjects_accuracy)
 
+    
     def _pnn_model(self, generation_index):
-        return PNN_Model(feature_layer=feature_layer, columns=columns)
+        return PNN_Model(feature_layer=feature_layer, columns=self.columns)
 
     def _create_column(self, generation_index, layer_info):
         column = PNN_Column(layer_info, generation=generation_index)
