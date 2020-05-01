@@ -27,23 +27,26 @@ class PNN(base_config.base):
         self.reps = reps
         self.epoch = epoch
         self.batch_size = batch_size
-        self.columns = []
         self.subject_paths = human_gestures.subject_paths
-        self.layer_info = self._model()
 
     def run_model(self):
         subjects_accuracy = []
         random.shuffle(self.subject_paths)
 
-        for i in range(len(self.subject_paths)):
+        for n in range(self.reps):
+            columns = [] 
             k_fold = []
             result = []
             
-            self._create_column(i, self.layer_info)
-
-            for n in range(self.reps):
+            for i in range(len(self.subject_paths)):
+                print(f'\nSubject {i + 1}/{len(self.subject_paths)}')
                 
-                model = self._pnn_model(i)
+                self.layer_info = self._model()
+                
+                column = self._create_column(i, self.layer_info)
+                columns.append(column)
+                
+                model = self._pnn_model(i, columns)
                 
                 train, val, test = human_gestures.get_data(
                     human_gestures.subject_paths[i], n, self.batch_size)
@@ -68,12 +71,11 @@ class PNN(base_config.base):
         return (total_average, subjects_accuracy)
 
     
-    def _pnn_model(self, generation_index):
-        return PNN_Model(feature_layer=feature_layer, columns=self.columns)
+    def _pnn_model(self, generation_index, columns):
+        return PNN_Model(feature_layer=feature_layer, columns=columns)
 
     def _create_column(self, generation_index, layer_info):
-        column = PNN_Column(layer_info, generation=generation_index)
-        self.columns.append(column)
+        return PNN_Column(layer_info, generation=generation_index)
         
 
     def _model(self):
