@@ -69,9 +69,9 @@ class Dense(Model):
                 # 'arm_calibration_iterations',
                 # 'arm_calibration_values'
             ]),
-            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Dense(64, activation='relu'),
             tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Dense(64, activation='relu'),
             tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(18, activation='softmax')
         ])
