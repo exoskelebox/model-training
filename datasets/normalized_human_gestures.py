@@ -142,6 +142,7 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
             tf.data.TFRecordDataset,
             cycle_length=tf.data.experimental.AUTOTUNE,
             num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+        .cache()\
         .shuffle(2 ** 14)\
         .batch(
             batch_size=batch_size,
@@ -154,7 +155,7 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     test_dataset = tf.data.TFRecordDataset(test_file)
 
     def is_test(i, x):
-        return i % 5 == 0
+        return i % 2 == 0
 
     def is_val(i, x):
         return not is_test(i, x)
