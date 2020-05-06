@@ -9,8 +9,8 @@ features = [
     #'subject_age',
     #'subject_fitness',
     #'subject_handedness',
-    'subject_wrist_circumference',
-    'subject_forearm_circumference',
+    #'subject_wrist_circumference',
+    #'subject_forearm_circumference',
     #'repetition',
     'readings',
     #'wrist_calibration_iterations',
@@ -38,12 +38,11 @@ core = [
     {'type': tf.keras.layers.Dense, 'units': 18, 'activation': 'softmax'}]
 layer_info = {'core': core, 'adapters': adapters}
 
-adapters2 = {'type': tf.keras.layers.Dense, 'units': 16, 'activation': 'relu'}
-core2 = [
-    {'type': tf.keras.layers.Dense, 'units': 32, 'activation': 'relu'},
-    {'type': tf.keras.layers.Dense, 'units': 32, 'activation': 'relu'},
+pretrained_core = [
+    {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
+    {'type': tf.keras.layers.Dense, 'units': 64, 'activation': 'relu'},
     {'type': tf.keras.layers.Dense, 'units': 18, 'activation': 'softmax'}]
-layer_info2 = {'core': core, 'adapters': adapters}
+pretrained_layer_info = {'core': pretrained_core, 'adapters': adapters}
 
 
 subject_paths = human_gestures.subject_paths
@@ -85,13 +84,13 @@ file_name = f"{model_desc} - {t}.txt"
 path = os.path.join('results', file_name)
 
 with open(path,"w+") as f:
-    f.write(f"Model: PNN  2x32(ReLU)\n")
+    f.write(f"Model: Combined PNN - Pretrained: {pretrained_core} - Current: {core} - Adapters: {adapters}\n")
     f.write(f"Features: Pretrained: {features} - Current: {simple_features} \n")
 
 
 subjects = enumerate(subject_paths)
 # for each repetition
-for rep in range(1):
+for rep in range(num_repetitions):
     for i in range(num_subjects):
          
         print(f'Loading data for repetition {rep}, subject {i}:')
@@ -105,7 +104,7 @@ for rep in range(1):
         old_model = PNN_Model(columns=columns)
         results[i][rep]['pretrained'] = train_and_eval(old_model, train_old, test_old)
 
-        column = PNN_Column(layer_info2, generation=1, feature_layer=simple_feature_layer)
+        column = PNN_Column(layer_info, generation=1, feature_layer=simple_feature_layer)
         columns = [old_column, column]
         model = PNN_Model(columns=columns)
         results[i][rep]['current'] = train_and_eval(model, train_cur, test_cur)
