@@ -132,6 +132,6 @@ config.ini
 .vscode/
 pnn_saves/
 
-/logs
+logs/
 
 hp/ 
