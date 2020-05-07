@@ -6,10 +6,11 @@ import random
 from statistics import mean
 import tensorflow as tf
 import kerastuner as kt
+from datetime import datetime
+from callbacks import ConfusionMatrix
 
 
 class Dense(Model):
-
     def __init__(self):
         self.subject_paths = human_gestures.subject_paths
 
@@ -23,19 +24,26 @@ class Dense(Model):
 
             for rep_index, _ in enumerate(next(os.walk(subject_path))[-1]):
 
+                logdir = os.path.join(
+                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'dense', f's{subject_index}', f'r{rep_index}']))
+
                 train, val, test = human_gestures.get_data(
                     subject_path, rep_index, batch_size)
 
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
                     patience=10)
+                tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
                 model = self.build()
+
+                cm = ConfusionMatrix(test, model, logdir)
 
                 model.fit(train,
                           validation_data=val,
                           epochs=epochs,
-                          callbacks=[early_stop])
+                          callbacks=[early_stop, tensorboard, cm])
+
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
 
