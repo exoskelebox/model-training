@@ -131,3 +131,7 @@ dmypy.json
 config.ini
 .vscode/
 pnn_saves/
+
+logs/
+
+hp/ 
