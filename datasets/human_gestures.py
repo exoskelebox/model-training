@@ -7,8 +7,8 @@ from collections import defaultdict
 import glob
 import os
 
-fname = 'hgest.tar.gz'
-origin = 'https://storage.googleapis.com/exoskelebox/hgest.tar.gz'
+fname = 'raw_hgest.tar.gz'
+origin = 'https://storage.googleapis.com/exoskelebox/raw_hgest.tar.gz'
 path: str = tf.keras.utils.get_file(
     fname, origin, extract=True, file_hash='c341610f55f32896854a08dcfa1bd022')
 path = path.rsplit('.', 2)[0]
