@@ -194,14 +194,14 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     return train_dataset, val_dataset, test_dataset
 
 
-def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size=64):
+def get_data_except(excluded_subject_paths: list = [], batch_size: int=64, ratios: tuple=(8,1,1), offset: int=0):
     """
-    Retreives the human gestures dataset. Returns the combined data for all subjects except the one given.
+    Retreives the human gestures dataset. Returns the combined data for all subjects except the ones given.
     """
     files = []
 
     for subject_path in subject_paths:
-        if subject_path == excluded_subject_path:
+        if subject_path in excluded_subject_paths:
             continue
         subject_files = glob.glob(subject_path + '/*.tfrecord')
         files += subject_files
@@ -224,20 +224,20 @@ def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size
                 num_parallel_calls=tf.data.experimental.AUTOTUNE)\
             .cache()\
             .prefetch(tf.data.experimental.AUTOTUNE)
-        for subset in split(full_dataset, ratios=[8,1,1])]
+        for subset in split(full_dataset, ratios= ratios, offset= offset)]
 
     return train, val, test
 
-def split(data, ratios=[1,1]):
+def split(data, ratios=(1,1), offset=0):
     """
     Splits data according to provided ratios. Returns list of datasets.
     """
     ratio_sum = sum(ratios)
-    offset = 0
     subsets = []
 
     def is_subset(i, offset, ratio):
-        return (i + ratio_sum - offset) % ratio_sum < ratio
+        # 2*ratio_sum ensures offset does not cause it to reach negative numbers
+        return (i + (2*ratio_sum) - offset) % ratio_sum < ratio  
     
     def deenumerate(i, x):
         return x
