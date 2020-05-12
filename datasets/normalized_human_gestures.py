@@ -11,7 +11,7 @@ import random
 fname = 'normalized_hgest.tar.gz'
 origin = 'https://storage.googleapis.com/exoskelebox/normalized_hgest.tar.gz'
 path: str = tf.keras.utils.get_file(
-    fname, origin, extract=True, file_hash='de2cb287be32887655f03a04445e31a1788704b80202edaae77901faa30191b3')
+    fname, origin, extract=True, file_hash='98ae04fe4d1d4ad6fbcf5da8f7f7f648')
 path = path.rsplit('.', 2)[0]
 subject_paths = [f.path for f in os.scandir(path) if f.is_dir()]
 
@@ -194,7 +194,7 @@ def get_data(subject_path: str, test_repitition: int, batch_size=64):
     return train_dataset, val_dataset, test_dataset
 
 
-def get_data_except(excluded_subject_paths: list = [], batch_size: int=64, ratios: tuple=(8,1,1), offset: int=0):
+def get_data_except(excluded_subject_paths: list = [], batch_size: int = 64, ratios: tuple = (8, 1, 1), offset: int = 0):
     """
     Retreives the human gestures dataset. Returns the combined data for all subjects except the ones given.
     """
@@ -214,21 +214,22 @@ def get_data_except(excluded_subject_paths: list = [], batch_size: int=64, ratio
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     train, val, test = [
-        subset\
-            .shuffle(2 ** 19)\
-            .batch(
-                batch_size=batch_size,
-                drop_remainder=True)\
-            .map(
-                map_func=_parse_batch,
-                num_parallel_calls=tf.data.experimental.AUTOTUNE)\
-            .cache()\
-            .prefetch(tf.data.experimental.AUTOTUNE)
-        for subset in split(full_dataset, ratios= ratios, offset= offset)]
+        subset
+        .shuffle(2 ** 19)
+        .batch(
+            batch_size=batch_size,
+            drop_remainder=True)
+        .map(
+            map_func=_parse_batch,
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        .cache()
+        .prefetch(tf.data.experimental.AUTOTUNE)
+        for subset in split(full_dataset, ratios=ratios, offset=offset)]
 
     return train, val, test
 
-def split(data, ratios=(1,1), offset=0):
+
+def split(data, ratios=(1, 1), offset=0):
     """
     Splits data according to provided ratios. Returns list of datasets.
     """
@@ -237,14 +238,14 @@ def split(data, ratios=(1,1), offset=0):
 
     def is_subset(i, offset, ratio):
         # 2*ratio_sum ensures offset does not cause it to reach negative numbers
-        return (i + (2*ratio_sum) - offset) % ratio_sum < ratio  
-    
+        return (i + (2*ratio_sum) - offset) % ratio_sum < ratio
+
     def deenumerate(i, x):
         return x
 
     data = data.enumerate()
     for ratio in ratios:
-        cond = lambda i, x: is_subset(i, offset, ratio) 
+        def cond(i, x): return is_subset(i, offset, ratio)
 
         subset = data\
             .filter(cond)\
@@ -254,7 +255,7 @@ def split(data, ratios=(1,1), offset=0):
         offset += ratio
 
     return subsets
-    
+
+
 if __name__ == "__main__":
     train, val, test = get_data_except(subject_paths[0], 1)
-

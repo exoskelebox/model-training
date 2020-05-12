@@ -10,7 +10,7 @@ import os
 fname = 'raw_hgest.tar.gz'
 origin = 'https://storage.googleapis.com/exoskelebox/raw_hgest.tar.gz'
 path: str = tf.keras.utils.get_file(
-    fname, origin, extract=True, file_hash='c341610f55f32896854a08dcfa1bd022')
+    fname, origin, extract=True, file_hash='9c00b2b861cfbd4cf4350cf0b1fc78b6')
 path = path.rsplit('.', 2)[0]
 subject_paths = [f.path for f in os.scandir(path) if f.is_dir()]
 
@@ -154,5 +154,3 @@ def get_data_except(excluded_subject_path: str, test_repitition: int, batch_size
         train_files += files
 
     return _build_dataset(train_files, batch_size), _build_dataset(test_files, batch_size)
-
-#print(get_data(subject_paths[0], 2))
