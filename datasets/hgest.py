@@ -182,6 +182,3 @@ class HGEST(object):
 
                 yield train_dataset, val_dataset, test_dataset
 
-
-hgest = HGEST()
-print(next(hgest.k_fold()))
