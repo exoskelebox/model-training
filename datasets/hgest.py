@@ -58,8 +58,7 @@ class HGEST(object):
             .map(
                 map_func=self._parse,
                 num_parallel_calls=tf.data.experimental.AUTOTUNE
-            )\
-            .cache()
+            )
 
     @property
     def feature_description(self):
@@ -158,6 +157,7 @@ class HGEST(object):
                     .map(deenumerate)
 
                 train_dataset = train_dataset\
+                    .cache()\
                     .shuffle(2 ** 14)\
                     .batch(
                         batch_size=batch_size,
@@ -165,6 +165,7 @@ class HGEST(object):
                     .prefetch(tf.data.experimental.AUTOTUNE)
 
                 val_dataset = val_dataset\
+                    .cache()\
                     .shuffle(2 ** 14)\
                     .batch(
                         batch_size=batch_size,
@@ -172,6 +173,7 @@ class HGEST(object):
                     .prefetch(tf.data.experimental.AUTOTUNE)
 
                 test_dataset = test_dataset\
+                    .cache()\
                     .shuffle(2 ** 14, reshuffle_each_iteration=False)\
                     .batch(
                         batch_size=batch_size,
