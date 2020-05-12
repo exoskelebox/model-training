@@ -211,11 +211,11 @@ def get_data_except(excluded_subject_paths: list = [], batch_size: int = 64, rat
         .interleave(
             tf.data.TFRecordDataset,
             cycle_length=tf.data.experimental.AUTOTUNE,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)\
+        .shuffle(2 ** 19, reshuffle_each_iteration=False)
 
     train, val, test = [
         subset
-        .shuffle(2 ** 19)
         .batch(
             batch_size=batch_size,
             drop_remainder=True)
@@ -223,8 +223,18 @@ def get_data_except(excluded_subject_paths: list = [], batch_size: int = 64, rat
             map_func=_parse_batch,
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
         .cache()
-        .prefetch(tf.data.experimental.AUTOTUNE)
         for subset in split(full_dataset, ratios=ratios, offset=offset)]
+
+    train = train\
+        .shuffle(2 ** 19)\
+        .prefetch(tf.data.experimental.AUTOTUNE)
+
+    val = val\
+        .shuffle(2 ** 19)\
+        .prefetch(tf.data.experimental.AUTOTUNE)
+
+    test = test\
+        .prefetch(tf.data.experimental.AUTOTUNE)
 
     return train, val, test
 
