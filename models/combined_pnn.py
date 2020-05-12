@@ -61,17 +61,17 @@ class Combined_PNN(Model):
 
                 pretrained, model = self.build()
 
-                pre_cm = ConfusionMatrix(pre_test, pretrained, pre_logdir)
-                cm = ConfusionMatrix(test, model, logdir)
+                #cm = ConfusionMatrix(test, model, logdir)
+                #pre_cm = ConfusionMatrix(pre_test, pretrained, pre_logdir)
 
                 pretrained.fit(
                     pre_train,
                     validation_data=pre_val,
                     epochs=epochs,
-                    callbacks=[early_stop, pre_tensorboard, pre_cm]
+                    callbacks=[early_stop, pre_tensorboard]
                 )
 
-                # Freeze the layers except the last 4 layers
+                # Freeze the pretrained layers
                 for layer in pretrained.layers:
                     layer.trainable = False
                 # Check the trainable status of the individual layers
@@ -82,7 +82,7 @@ class Combined_PNN(Model):
                     train,
                     validation_data=val,
                     epochs=epochs,
-                    callbacks=[early_stop, tensorboard, cm]
+                    callbacks=[early_stop, tensorboard]
                 )
 
                 result = model.evaluate(test)
@@ -162,7 +162,6 @@ class Combined_PNN(Model):
         x = dropout_3(x)
 
         # Output layer
-        x = layers.concatenate([x, a])
         pretrained_output = layers.Dense(18, activation='softmax')(y)
         pretrained_model = keras.models.Model(inputs=model_input, outputs=pretrained_output)
         pretrained_model.compile(
@@ -172,6 +171,7 @@ class Combined_PNN(Model):
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy'])
 
+        x = layers.concatenate([x, a])
         model_output = layers.Dense(18, activation='softmax')(x)
         model = keras.models.Model(inputs=model_input, outputs=model_output)
         model.compile(
