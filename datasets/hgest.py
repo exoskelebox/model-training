@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pathlib
 import types
+import random
 
 
 class HGEST(object):
@@ -21,11 +22,11 @@ class HGEST(object):
         One file per subject containing the samples that make up the dataset.
     '''
 
-    def __init__(self, key='normalized'):
+    def __init__(self, key='raw'):
         fname = 'hgest.tar.gz'
         origin = 'https://storage.googleapis.com/exoskelebox/hgest.tar.gz'
         path: str = tf.keras.utils.get_file(
-            fname, origin, extract=True, file_hash='ba69480e37c725eab4676f95d44b0720')
+            fname, origin, extract=True, file_hash='452ec3c4e89eb187825725092f9c6a8e')
         path = path.rsplit('.', 2)[0]
         path = pathlib.Path(os.path.join(path, key))
 
@@ -80,10 +81,16 @@ class HGEST(object):
 
     @property
     def dataset(self):
-        return self._dataset(next(self.files))
+        return self._dataset(self.files)
 
     def feature_layer(self, cols: [] = None) -> tf.keras.layers.Dense:
         valid_cols = self.feature_description.keys()
+
+        # Label is not a valid column for the feature layer
+        valid_cols.remove('label')
+
+        # Ensure unique columns
+        cols = set(cols)
 
         if not cols:
             cols = valid_cols
@@ -94,6 +101,85 @@ class HGEST(object):
 
         return tf.keras.layers.DenseFeatures([self.feature_description[col](col) for col in cols])
 
+    def subjects(self, shuffle=True):
+        files = list(self.files)
+
+        if shuffle:
+            random.shuffle(files)
+
+        for file in files:
+            yield self._dataset(file)\
+                .shuffle(2 ** 14, reshuffle_each_iteration=False)
+
+    def k_fold(self, shuffle=True, batch_size=64):
+        repetitions = None
+
+        def is_test(i, x):
+            return i % 2 == 0
+
+        def is_val(i, x):
+            return not is_test(i, x)
+
+        def deenumerate(i, x):
+            return x
+
+        def repetition(x, y):
+            return x['repetition']
+
+        for subject in self.subjects(shuffle):
+            # Fetch the unique repetition feature values
+            if not repetitions:
+                repetitions = subject\
+                    .map(repetition)\
+                    .apply(tf.data.experimental.unique())
+
+            for rep in repetitions:
+
+                def is_test_rep(x, y):
+                    return x['repetition'] == rep
+
+                def is_train(x, y):
+                    return not is_test_rep(x, y)
+
+                train_dataset = subject\
+                    .filter(is_train)
+
+                test_dataset = subject\
+                    .filter(is_test_rep)
+
+                val_dataset = test_dataset\
+                    .enumerate()\
+                    .filter(is_val)\
+                    .map(deenumerate)
+
+                test_dataset = test_dataset\
+                    .enumerate()\
+                    .filter(is_test)\
+                    .map(deenumerate)
+
+                train_dataset = train_dataset\
+                    .shuffle(2 ** 14)\
+                    .batch(
+                        batch_size=batch_size,
+                        drop_remainder=True)\
+                    .prefetch(tf.data.experimental.AUTOTUNE)
+
+                val_dataset = val_dataset\
+                    .shuffle(2 ** 14)\
+                    .batch(
+                        batch_size=batch_size,
+                        drop_remainder=True)\
+                    .prefetch(tf.data.experimental.AUTOTUNE)
+
+                test_dataset = test_dataset\
+                    .shuffle(2 ** 14, reshuffle_each_iteration=False)\
+                    .batch(
+                        batch_size=batch_size,
+                        drop_remainder=True)\
+                    .prefetch(tf.data.experimental.AUTOTUNE)
+
+                yield train_dataset, val_dataset, test_dataset
+
 
 hgest = HGEST()
-print(hgest.dataset)
+print(next(hgest.k_fold()))
