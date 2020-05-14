@@ -14,7 +14,7 @@ class FineTuned(Model):
     def __init__(self):
         self.subject_paths = human_gestures.subject_paths
 
-    def run_model(self, batch_size, epochs):
+    def run_model(self, batch_size, epochs, hp=kt.HyperParameters()):
         subjects_accuracy = []
 
         for subject_index, subject_path in enumerate(self.subject_paths):
