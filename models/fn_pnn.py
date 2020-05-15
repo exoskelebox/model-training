@@ -52,17 +52,17 @@ class PNN(Model):
                     early_stop = tf.keras.callbacks.EarlyStopping(
                         monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
                         patience=10)
-
+                    
                     col_data = human_gestures.get_data(
                         subject_path, rep_index, batch_size)
                     col_train, col_val, col_test = (d.map(lambda x,y: (self.feature_layer(x), y)) for d in col_data)
-
+                    
                     col_model = columns[column_index]['model']
 
                     # Check the trainable status of the individual layers
                     for layer in col_model.layers:
                         print(layer, layer.trainable)
-
+                    
                     col_model.fit(
                         col_train,
                         validation_data=col_val,
@@ -71,7 +71,7 @@ class PNN(Model):
                     )
 
                     # Freeze the layers
-                    for layer in col_model.layers:
+                    for layer in col_model.layers[1:]:
                         layer.trainable = False
 
                 data = human_gestures.get_data(
@@ -87,6 +87,7 @@ class PNN(Model):
                     patience=10)
 
                 model = columns[-1]['model']
+                
                 model.fit(
                     train,
                     validation_data=val,
@@ -99,6 +100,7 @@ class PNN(Model):
 
                 savepath = '.'.join([logdir, 'h5'])
                 model.save(savepath)
+                break
 
             average = mean(k_fold)
             print(f'\nmean accuracy: {average}')
@@ -127,12 +129,12 @@ class PNN(Model):
 
         print('Building columns: 0/20', end='', flush=False)
 
+        columns = []    
         # Input layer
         model_input = layers.Input(name='readings', shape=(15,), dtype='float32')
-        columns = []
 
         for index, _ in enumerate(self.subject_paths):
-            
+                
             print(f'\rBuilding columns: {index+1}/20', end='', flush=True)
             column = {}
             # 1st hidden layer
@@ -167,7 +169,7 @@ class PNN(Model):
             # Output layer
             column['layer_3_adapters'] = [layers.Dense(2**adapter_exponent, activation='relu') for _ in range(index)]
             column['layer_3_adapters_output'] = [column['layer_3_adapters'][i](columns[i]['layer_3_output']) for i in range(index)]
-            output_layer_input = layers.concatenate([column['dropout_1_output'], *column['layer_1_adapters_output']]) if column['layer_3_adapters_output'] else column['dropout_3_output']
+            output_layer_input = layers.concatenate([column['dropout_3_output'], *column['layer_3_adapters_output']]) if column['layer_3_adapters_output'] else column['dropout_3_output']
 
             column['output_layer'] = layers.Dense(18, activation='softmax')
             column['output'] = column['output_layer'](output_layer_input)
