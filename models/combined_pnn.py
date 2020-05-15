@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import os
 from .model import Model
-from datasets import normalized_human_gestures as human_gestures
+from human_gestures import HumanGestures
 import random
 from statistics import mean
 import tensorflow as tf
@@ -10,73 +10,64 @@ from tensorflow.keras import layers
 import kerastuner as kt
 from datetime import datetime
 from callbacks import ConfusionMatrix
+import time
+from utils.data_utils import split, exclude
 
 
 class Combined_PNN(Model):
-    def __init__(self):
-        self.subject_paths = human_gestures.subject_paths
-        self.feature_layer = human_gestures.get_feature_layer([
-            # 'subject_gender',
-            # 'subject_age',
-            # 'subject_fitness',
-            # 'subject_handedness',
-            # 'subject_wrist_circumference',
-            # 'subject_forearm_circumference',
-            # 'repetition',
-            'readings',
-            # 'wrist_calibration_iterations',
-            # 'wrist_calibration_values',
-            # 'arm_calibration_iterations',
-            # 'arm_calibration_values'
-        ])
 
     def run_model(self, batch_size, epochs):
         subjects_accuracy = []
 
-        for subject_index, subject_path in enumerate(self.subject_paths):
+        for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets()):
             k_fold = []
             result = []
+            pretrained_weights = []
             print(f'\nSubject {subject_index + 1}')
 
-            for rep_index, _ in enumerate(next(os.walk(subject_path))[-1]):
+            for rep_index, (val, train) in enumerate(subject_repetitions):
 
+                # Firstly train a model on all the data except for the targeted subject
                 logdir = os.path.join(
-                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'cpnn', f's{subject_index}', f'r{rep_index}']))
-                pre_logdir = os.path.join(
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'pre_cpnn', f's{subject_index}', f'r{rep_index}']))
-                
-                data = human_gestures.get_data(
-                    subject_path, rep_index, batch_size)
-                train, val, test = (d.map(lambda x,y: (self.feature_layer(x), y)) for d in data)
-                
-                pretraining_data = human_gestures.get_data_except(
-                    [subject_path], batch_size, offset=2*rep_index)
-                pre_train, pre_val, pre_test = (d.map(lambda x,y: (self.feature_layer(x), y)) for d in pretraining_data)
-                
+
+                # Split the dataset according to the given ratio
+                pre_train, pre_val = split(remainder, (8, 2))
+
+                pre_train = pre_train.shuffle(2**14)
+
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
                     patience=10)
-                tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
-                pre_tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
-                pretrained, model = self.build()
+                tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=logdir)
 
-                #cm = ConfusionMatrix(test, model, logdir)
-                #pre_cm = ConfusionMatrix(pre_test, pretrained, pre_logdir)
+                pretrained, model = self.build(hp=kt.HyperParameters())
 
-                pretrained.fit(
-                    pre_train,
-                    validation_data=pre_val,
-                    epochs=epochs,
-                    callbacks=[early_stop, pre_tensorboard]
-                )
+                if not pretrained_weights:
+                    pretrained.fit(
+                        pre_train,
+                        validation_data=pre_val,
+                        epochs=epochs,
+                        callbacks=[early_stop, tensorboard]
+                    )
+                    pretrained_weights = pretrained.get_weights()
+                else:
+                    pretrained.set_weights(pretrained_weights)
 
                 # Freeze the pretrained layers
                 for layer in pretrained.layers:
                     layer.trainable = False
-                # Check the trainable status of the individual layers
-                for layer in model.layers:
-                    print(layer, layer.trainable)
+
+                # ... Then we train a model on the targeted subject in context of the other subjects
+                val, test = split(val)
+                train = train.shuffle(2**14)
+
+                logdir = os.path.join(
+                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'cpnn', f's{subject_index}', f'r{rep_index}']))
+
+                tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
                 model.fit(
                     train,
@@ -103,33 +94,47 @@ class Combined_PNN(Model):
                           default=6,
                           step=1)
         adapter_exponent = hp.Int('exponent',
-                          min_value=2,
-                          max_value=6,
-                          default=4,
-                          step=1)
+                                  min_value=2,
+                                  max_value=6,
+                                  default=4,
+                                  step=1)
         dropout = hp.Float('dropout',
                            min_value=0.0,
                            default=0.2,
                            max_value=0.5,
                            step=0.1)
 
-
         # Input layer
-        model_input = layers.Input(name='readings', shape=(15,), dtype='float32')
+        inputs = HumanGestures.feature_inputs()
+
+        feature_layer = HumanGestures().feature_layer([
+            # 'subject_gender',
+            # 'subject_age',
+            # 'subject_fitness',
+            # 'subject_handedness',
+            # 'subject_wrist_circumference',
+            # 'subject_forearm_circumference',
+            # 'repetition',
+            'readings',
+            # 'wrist_calibration_iterations',
+            # 'wrist_calibration_values',
+            # 'arm_calibration_iterations',
+            # 'arm_calibration_values'
+        ])(inputs)
 
         # 1st hidden layer
         pretrained_dense_1 = layers.Dense(2**exponent, activation='relu')
-        y = pretrained_dense_1(model_input)
+        y = pretrained_dense_1(feature_layer)
         adapter_1 = layers.Dense(2**adapter_exponent, activation='relu')
         a = adapter_1(y)
         dense_1 = layers.Dense(2**exponent, activation='relu')
-        x = dense_1(model_input)
+        x = dense_1(feature_layer)
 
         # 1st dropout layer
         pretrained_dropout_1 = layers.Dropout(dropout)
         y = pretrained_dropout_1(y)
         dropout_1 = layers.Dropout(dropout)
-        x = dropout_1(x)         
+        x = dropout_1(x)
 
         # 2nd hidden layer
         x = layers.concatenate([x, a])
@@ -145,7 +150,7 @@ class Combined_PNN(Model):
         y = pretrained_dropout_2(y)
         dropout_2 = layers.Dropout(dropout)
         x = dropout_2(x)
-        
+
         # 3rd hidden layer
         x = layers.concatenate([x, a])
         pretrained_dense_3 = layers.Dense(2**exponent, activation='relu')
@@ -163,7 +168,8 @@ class Combined_PNN(Model):
 
         # Output layer
         pretrained_output = layers.Dense(18, activation='softmax')(y)
-        pretrained_model = keras.models.Model(inputs=model_input, outputs=pretrained_output)
+        pretrained_model = keras.models.Model(
+            inputs=inputs.values(), outputs=pretrained_output)
         pretrained_model.compile(
             optimizer=tf.keras.optimizers.Adam(
                 hp.Choice('learning_rate',
@@ -173,7 +179,8 @@ class Combined_PNN(Model):
 
         x = layers.concatenate([x, a])
         model_output = layers.Dense(18, activation='softmax')(x)
-        model = keras.models.Model(inputs=model_input, outputs=model_output)
+        model = keras.models.Model(
+            inputs=inputs.values(), outputs=model_output)
         model.compile(
             optimizer=tf.keras.optimizers.Adam(
                 hp.Choice('learning_rate',
