@@ -1,41 +1,39 @@
 from __future__ import absolute_import
 import os
 from .model import Model
-from datasets import normalized_human_gestures as human_gestures
 import random
 from statistics import mean
 import tensorflow as tf
 import kerastuner as kt
 from datetime import datetime
 from callbacks import ConfusionMatrix
+from human_gestures import HumanGestures
+from utils.data_utils import feature_fold, shuffle, split
 
 
 class Dense(Model):
-    def __init__(self):
-        self.subject_paths = human_gestures.subject_paths
 
     def run_model(self, batch_size, epochs):
         subjects_accuracy = []
 
-        for subject_index, subject_path in enumerate(self.subject_paths):
+        for subject_index, (subject_repetitions, _) in enumerate(HumanGestures(batch_size).subject_datasets()):
             k_fold = []
             result = []
             print(f'\nSubject {subject_index + 1}')
 
-            for rep_index, _ in enumerate(next(os.walk(subject_path))[-1]):
+            for rep_index, (val, train) in enumerate(subject_repetitions):
+                val, test = split(val)
+                train = train.shuffle(2**14)
 
                 logdir = os.path.join(
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'dense', f's{subject_index}', f'r{rep_index}']))
-
-                train, val, test = human_gestures.get_data(
-                    subject_path, rep_index, batch_size)
 
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
                     patience=10)
                 tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
 
-                model = self.build()
+                model = self.build(hp=kt.HyperParameters())
 
                 cm = ConfusionMatrix(test, model, logdir)
 
@@ -55,7 +53,7 @@ class Dense(Model):
 
         return (total_average, subjects_accuracy)
 
-    def build(self, hp=kt.HyperParameters()):
+    def build(self, hp):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
@@ -68,7 +66,7 @@ class Dense(Model):
                            step=0.1)
 
         model = tf.keras.Sequential([
-            human_gestures.get_feature_layer([
+            HumanGestures.feature_layer([
                 # 'subject_gender',
                 # 'subject_age',
                 # 'subject_fitness',

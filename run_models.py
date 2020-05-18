@@ -6,7 +6,7 @@ os.environ["KMP_AFFINITY"] = "noverbose"  # nopep8
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # nopep8
 
 import tensorflow as tf
-from models import Dense, run_pnn, combined_pnn
+from models import Dense, run_pnn, combined_pnn, fine_tuning, fn_pnn
 
 tf.get_logger().setLevel(logging.ERROR)
 tf.autograph.set_verbosity(3)
@@ -39,7 +39,9 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
     models_config = {
         'dense': Dense,
         'pnn': run_pnn.PNN,
-        'cpnn': combined_pnn.Combined_PNN
+        'cpnn': combined_pnn.Combined_PNN,
+        'finetuning': fine_tuning.FineTuned,
+        'fn_pnn': fn_pnn.PNN
     }
 
     for current_model in selected_models:
@@ -52,4 +54,4 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
 
 if __name__ == "__main__":
-    run_models(['cpnn'], 1024, 100)
+    run_models(['fn_pnn'], 1024, 100)

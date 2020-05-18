@@ -4,6 +4,7 @@ import numpy as np
 import pathlib
 import types
 import random
+import time
 
 
 class HGEST(object):
@@ -149,12 +150,16 @@ class HGEST(object):
                 val_dataset = test_dataset\
                     .enumerate()\
                     .filter(is_val)\
-                    .map(deenumerate)
+                    .map(
+                        deenumerate,
+                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
                 test_dataset = test_dataset\
                     .enumerate()\
                     .filter(is_test)\
-                    .map(deenumerate)
+                    .map(
+                        deenumerate,
+                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
                 train_dataset = train_dataset\
                     .cache()\
@@ -181,4 +186,3 @@ class HGEST(object):
                     .prefetch(tf.data.experimental.AUTOTUNE)
 
                 yield train_dataset, val_dataset, test_dataset
-
