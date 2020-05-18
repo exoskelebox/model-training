@@ -108,14 +108,17 @@ class HumanGestures():
         """
         return self._dataset(self.path().glob('*.tfrecord'))
 
-    def subject_datasets(self, fold_current=True):
+    def subject_datasets(self, fold_current=True, flatten_remainder=True):
         subject_paths = [Path(f.path)
                          for f in os.scandir(self.path()) if f.is_dir()]
 
         for csub, rsub in fold(subject_paths):
             csub_reps = list(csub.glob('*.tfrecord'))
-            rsub_reps = [rep for sub in rsub for rep in sub.glob('*.tfrecord')]
-            yield (self._repetition_datasets(csub_reps) if fold_current else self._dataset(csub_reps)), self._dataset(rsub_reps)
+            if flatten_remainder:
+                rsub_reps = self._dataset([rep for sub in rsub for rep in sub.glob('*.tfrecord')])
+            else:
+                rsub_reps = [self._repetition_datasets([rep for rep in sub.glob('*.tfrecord')]) for sub in rsub]
+            yield (self._repetition_datasets(csub_reps) if fold_current else self._dataset(csub_reps)), rsub_reps
 
     def _repetition_datasets(self, files):
         for crep, rrep in fold(files):
