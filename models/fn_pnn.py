@@ -83,7 +83,6 @@ class PNN(Model):
 
                 savepath = '.'.join([logdir, 'h5'])
                 model.save(savepath)
-                break
 
             average = mean(k_fold)
             print(f'\nmean accuracy: {average}')
