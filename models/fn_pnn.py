@@ -96,12 +96,12 @@ class PNN(Model):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=6,
+                          default=7,
                           step=1)
-        adapter_exponent = hp.Int('exponent',
+        adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,
-                                  max_value=6,
-                                  default=4,
+                                  max_value=10,
+                                  default=7,
                                   step=1)
         dropout = hp.Float('dropout',
                            min_value=0.0,
@@ -154,7 +154,7 @@ class PNN(Model):
             column['dropout_2_output'] = column['dropout_2'](
                 column['layer_2_output'])
 
-            # 3rd hidden layer
+            """ # 3rd hidden layer
             column['layer_2_adapters'] = [layers.Dense(
                 2**adapter_exponent, activation='relu') for _ in range(index)]
             column['layer_2_adapters_output'] = [column['layer_2_adapters'][i](
@@ -167,7 +167,7 @@ class PNN(Model):
 
             column['dropout_3'] = layers.Dropout(dropout)
             column['dropout_3_output'] = column['dropout_3'](
-                column['layer_3_output'])
+                column['layer_3_output']) """
 
             # Output layer
             column['layer_3_adapters'] = [layers.Dense(
