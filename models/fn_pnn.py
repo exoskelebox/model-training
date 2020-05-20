@@ -100,12 +100,12 @@ class PNN(Model):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=6,
+                          default=7,
                           step=1)
         adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,
-                                  max_value=6,
-                                  default=4,
+                                  max_value=10,
+                                  default=7,
                                   step=1)
         dropout = hp.Float('dropout',
                            min_value=0.0,
