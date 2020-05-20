@@ -154,20 +154,21 @@ class PNN(Model):
             column['dropout_2_output'] = column['dropout_2'](
                 column['layer_2_output'])
 
-            """ # 3rd hidden layer
+            # 3rd hidden layer
             column['layer_2_adapters'] = [layers.Dense(
                 2**adapter_exponent, activation='relu') for _ in range(index)]
             column['layer_2_adapters_output'] = [column['layer_2_adapters'][i](
                 columns[i]['layer_2_output']) for i in range(index)]
 
-            layer_3_input = layers.concatenate([column['dropout_2_output'], *column['layer_2_adapters_output']]
-                                               ) if column['layer_2_adapters_output'] else column['dropout_2_output']
+            output_layer_input = layers.concatenate([column['dropout_2_output'], *column['layer_2_adapters_output']]
+                                                    ) if column['layer_2_adapters_output'] else column['dropout_2_output']
+
             column['layer_3'] = layers.Dense(2**exponent, activation='relu')
             column['layer_3_output'] = column['layer_3'](layer_3_input)
 
             column['dropout_3'] = layers.Dropout(dropout)
             column['dropout_3_output'] = column['dropout_3'](
-                column['layer_3_output']) """
+                column['layer_3_output'])
 
             # Output layer
             column['layer_3_adapters'] = [layers.Dense(

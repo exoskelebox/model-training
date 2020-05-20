@@ -100,7 +100,7 @@ class HumanGestures():
             .map(
                 map_func=parse_batch,
                 num_parallel_calls=tf.data.experimental.AUTOTUNE)\
-            .cache()
+            .prefetch(tf.data.experimental.AUTOTUNE)
 
     def dataset(self):
         """
@@ -115,9 +115,11 @@ class HumanGestures():
         for csub, rsub in fold(subject_paths):
             csub_reps = list(csub.glob('*.tfrecord'))
             if flatten_remainder:
-                rsub_reps = self._dataset([rep for sub in rsub for rep in sub.glob('*.tfrecord')])
+                rsub_reps = self._dataset(
+                    [rep for sub in rsub for rep in sub.glob('*.tfrecord')])
             else:
-                rsub_reps = [self._repetition_datasets([rep for rep in sub.glob('*.tfrecord')]) for sub in rsub]
+                rsub_reps = [self._repetition_datasets(
+                    [rep for rep in sub.glob('*.tfrecord')]) for sub in rsub]
             yield (self._repetition_datasets(csub_reps) if fold_current else self._dataset(csub_reps)), rsub_reps
 
     def _repetition_datasets(self, files):
