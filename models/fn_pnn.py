@@ -103,7 +103,7 @@ class PNN(Model):
                 model.save(os.path.join(rep_logdir, 'model.h5'))
 
             average = mean(k_fold)
-            print('\nmean_accuracy: {:04d}'.format(average))
+            print('\nmean_accuracy: {:.4f}'.format(average))
             subjects_accuracy.append(average)
 
             subject_average = tf.summary.create_file_writer(
