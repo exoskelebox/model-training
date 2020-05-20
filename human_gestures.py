@@ -13,10 +13,10 @@ class HumanGestures():
 
     @staticmethod
     def path() -> Path:
-        fname = 'normalized_hgest.tar.gz'
-        origin = 'https://storage.googleapis.com/exoskelebox/normalized_hgest.tar.gz'
+        fname = 'hgest_half.tar.gz'
+        origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
         path: str = tf.keras.utils.get_file(
-            fname, origin, extract=True, file_hash='98ae04fe4d1d4ad6fbcf5da8f7f7f648')
+            fname, origin, extract=True, file_hash='4179d27b9771e683878db9f927464391')
         return Path(path.rsplit('.', 2)[0])
 
     @staticmethod
