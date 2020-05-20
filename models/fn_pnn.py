@@ -15,11 +15,17 @@ import tqdm
 
 
 class PNN(Model):
+    def __init__(self):
+        self.name = 'pnn'
 
     def run_model(self, batch_size, epochs, hp=kt.HyperParameters()):
         subjects_accuracy = []
+        log_folder = os.path.join(
+            'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), f'pnn']))
 
-        for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets(flatten_remainder=False)):
+        for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets(flatten_remainder=False), start=1):
+            print(f'\nSubject {subject_index}')
+            subject_logdir = os.path.join(log_folder, f's{subject_index}')
             k_fold = []
             result = []
 
@@ -42,7 +48,7 @@ class PNN(Model):
                 print('Column {}/{}'.format(column_index + 1, len(columns)))
 
                 col_logdir = os.path.join(
-                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), f'pnn_column', f's{subject_index}', f'c{column_index}', f'cs{column_subject}']))
+                    subject_logdir, 'columns', '-'.join(['column', f'c{column_index}', f'cs{column_subject}']))
                 col_tensorboard = tf.keras.callbacks.TensorBoard(
                     log_dir=col_logdir)
 
@@ -72,9 +78,10 @@ class PNN(Model):
                 print('Repetition {}/{}'.format(rep_index +
                                                 1, len(list(subject_repetitions))))
 
-                logdir = os.path.join(
-                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'pnn', f's{subject_index}', f'r{rep_index}']))
-                tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+                rep_logdir = os.path.join(subject_logdir, f'r{rep_index}')
+
+                tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=rep_logdir)
 
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
@@ -83,7 +90,7 @@ class PNN(Model):
                 model = columns[-1]['model']
                 val, test = split(val)
 
-                cm = ConfusionMatrix(test, model, logdir)
+                cm = ConfusionMatrix(test, model, rep_logdir)
                 model.fit(
                     train.shuffle(2**14),
                     validation_data=val,
@@ -94,14 +101,14 @@ class PNN(Model):
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
 
-                model.save(os.path.join(logdir, 'model.h5'))
+                model.save(os.path.join(rep_logdir, 'model.h5'))
 
             average = mean(k_fold)
             print('\nmean_accuracy: {:04d}'.format(average))
             subjects_accuracy.append(average)
 
             subject_average = tf.summary.create_file_writer(
-                os.path.join(logdir, 'model_average'))
+                os.path.join(subject_logdir, 'subject_average'))
             with subject_average.as_default():
                 tf.summary.text(f"subject_{subject_index}_average", str(
                     subjects_accuracy), step=0)
@@ -109,7 +116,7 @@ class PNN(Model):
         total_average = mean(subjects_accuracy)
 
         model_average = tf.summary.create_file_writer(
-            os.path.join(logdir, 'model_average'))
+            os.path.join(log_folder, 'model_average'))
         with model_average.as_default():
             tf.summary.text(f"model_average", str(
                 (total_average, subjects_accuracy)), step=1)
@@ -124,7 +131,7 @@ class PNN(Model):
                           step=1)
         adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,
-                                  max_value=10,
+                                  max_value=6,
                                   default=4,
                                   step=1)
         dropout = hp.Float('dropout',
