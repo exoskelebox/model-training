@@ -41,7 +41,7 @@ class PNN(Model):
                 r.shuffle(csi)
 
                 for column_index, column_repetitions in enumerate(remainder, start=1):
-                    column_subject = csi[column_index] if csi[column_index] < subject_index else csi[column_index] + 1
+                    column_subject = csi[column_index-1] if csi[column_index-1] < subject_index else csi[column_index-1] + 1
                     print(
                         f'\nSubject {subject_index}, rep {rep_index}, column {column_index}, column subject {column_subject}')
                     col_logdir = os.path.join(
