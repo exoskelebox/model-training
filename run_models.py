@@ -54,4 +54,4 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
 
 if __name__ == "__main__":
-    run_models(['cpnn'], 1024, 100)
+    run_models(['fn_pnn'], 1024, 100)

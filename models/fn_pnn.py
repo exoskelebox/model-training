@@ -22,46 +22,55 @@ class PNN(Model):
         for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets(flatten_remainder=False)):
             k_fold = []
             result = []
-            print(f'\nSubject {subject_index + 1}')
+
+            columns = self.build(hp=kt.HyperParameters(),
+                                 num_columns=(1 + len(list(remainder))))
+
+            print('Subject {}/{}'.format(subject_index + 1, len(columns)))
+
+            csi = [i for i in range(1, len(columns))]
+            r = random.Random()
+            state = r.getstate()
+            r.shuffle(remainder)
+            r.setstate(state)
+            r.shuffle(csi)
+
+            for column_index, column_repetitions in enumerate(remainder):
+                col_val, col_train = next(column_repetitions)
+                column_subject = csi[column_index] if csi[column_index] < subject_index else csi[column_index] + 1
+
+                print('Column {}/{}'.format(column_index + 1, len(columns)))
+
+                col_logdir = os.path.join(
+                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), f'pnn_column', f's{subject_index}', f'c{column_index}', f'cs{column_subject}']))
+                col_tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=col_logdir)
+
+                early_stop = tf.keras.callbacks.EarlyStopping(
+                    monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
+                    patience=10)
+
+                col_model = columns[column_index]['model']
+                col_model.fit(
+                    col_train.shuffle(2**14),
+                    validation_data=col_val,
+                    epochs=epochs,
+                    callbacks=[early_stop, col_tensorboard]
+                )
+
+                # Freeze the layers
+                for layer in col_model.layers[1:]:
+                    layer.trainable = False
+
+            col_weights = [col['model'].get_weights() for col in columns]
 
             for rep_index, (val, train) in enumerate(subject_repetitions):
-                columns = self.build(hp=kt.HyperParameters())
 
-                csi = [i for i in range(1, 20)]
-                r = random.Random()
-                state = r.getstate()
-                r.shuffle(remainder)
-                r.setstate(state)
-                r.shuffle(csi)
+                for index, weight in enumerate(col_weights):
+                    columns[index]['model'].set_weights(weight)
 
-                for column_index, column_repetitions in enumerate(remainder):
-                    col_val, col_train = next(column_repetitions)
-                    col_val, col_test = split(col_val)
-                    column_subject = csi[column_index] if csi[column_index] < subject_index else csi[column_index] + 1
-                    print(
-                        f'\nSubject {subject_index + 1}, rep {rep_index + 1}, column {column_index + 1}, column subject {column_subject}')
-                    col_logdir = os.path.join(
-                        'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), f'pnn_column', f's{subject_index}', f'r{rep_index}', f'c{column_index}', f'cs{column_subject}']))
-                    col_tensorboard = tf.keras.callbacks.TensorBoard(
-                        log_dir=col_logdir)
-
-
-                    early_stop = tf.keras.callbacks.EarlyStopping(
-                        monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
-                        patience=10)
-
-                    col_model = columns[column_index]['model']
-                    col_cm = ConfusionMatrix(col_test, col_model, col_logdir)
-                    col_model.fit(
-                        col_train.shuffle(2**14),
-                        validation_data=col_val,
-                        epochs=epochs,
-                        callbacks=[early_stop, col_tensorboard, col_cm]
-                    )
-
-                    # Freeze the layers
-                    for layer in col_model.layers[1:]:
-                        layer.trainable = False
+                print('Repetition {}/{}'.format(rep_index +
+                                                1, len(list(subject_repetitions))))
 
                 logdir = os.path.join(
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'pnn', f's{subject_index}', f'r{rep_index}']))
@@ -73,7 +82,7 @@ class PNN(Model):
 
                 model = columns[-1]['model']
                 val, test = split(val)
-                
+
                 cm = ConfusionMatrix(test, model, logdir)
                 model.fit(
                     train.shuffle(2**14),
@@ -85,35 +94,38 @@ class PNN(Model):
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
 
-                savepath = '.'.join([logdir, 'h5'])
-                model.save(savepath)
+                model.save(os.path.join(logdir, 'model.h5'))
 
             average = mean(k_fold)
-            print(f'\nmean accuracy: {average}')
+            print('\nmean_accuracy: {:04d}'.format(average))
             subjects_accuracy.append(average)
-            
-            subject_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+
+            subject_average = tf.summary.create_file_writer(
+                os.path.join(logdir, 'model_average'))
             with subject_average.as_default():
-                tf.summary.text(f"subject_{subject_index}_average", str(subjects_accuracy), step=0)
+                tf.summary.text(f"subject_{subject_index}_average", str(
+                    subjects_accuracy), step=0)
 
         total_average = mean(subjects_accuracy)
 
-        model_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+        model_average = tf.summary.create_file_writer(
+            os.path.join(logdir, 'model_average'))
         with model_average.as_default():
-            tf.summary.text(f"model_average", str((total_average, subjects_accuracy)), step=1)
-        
+            tf.summary.text(f"model_average", str(
+                (total_average, subjects_accuracy)), step=1)
+
         return (total_average, subjects_accuracy)
 
-    def build(self, hp=kt.HyperParameters()):
+    def build(self, hp=kt.HyperParameters(), num_columns=20):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=7,
+                          default=6,
                           step=1)
         adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,
                                   max_value=10,
-                                  default=7,
+                                  default=4,
                                   step=1)
         dropout = hp.Float('dropout',
                            min_value=0.0,
@@ -141,7 +153,7 @@ class PNN(Model):
             # 'arm_calibration_values'
         ])(inputs)
 
-        for index in tqdm.trange(20, desc='Building columns'):
+        for index in tqdm.trange(num_columns, desc='Building columns'):
             column = {}
             # 1st hidden layer
             column['layer_1'] = layers.Dense(2**exponent, activation='relu')
@@ -165,16 +177,14 @@ class PNN(Model):
             column['dropout_2'] = layers.Dropout(dropout)
             column['dropout_2_output'] = column['dropout_2'](
                 column['layer_2_output'])
-
-
-            
             # 3rd hidden layer
             column['layer_2_adapters'] = [layers.Dense(
                 2**adapter_exponent, activation='relu') for _ in range(index)]
             column['layer_2_adapters_output'] = [column['layer_2_adapters'][i](
                 columns[i]['layer_2_output']) for i in range(index)]
 
-            layer_3_input = layers.concatenate([column['dropout_2_output'], *column['layer_2_adapters_output']]) if column['layer_2_adapters_output'] else column['dropout_2_output']
+            layer_3_input = layers.concatenate([column['dropout_2_output'], *column['layer_2_adapters_output']]
+                                               ) if column['layer_2_adapters_output'] else column['dropout_2_output']
 
             """
             column['layer_3'] = layers.Dense(2**exponent, activation='relu')
@@ -195,7 +205,7 @@ class PNN(Model):
 
             column['output_layer'] = layers.Dense(18, activation='softmax')
             column['output'] = column['output_layer'](layer_3_input)
-            
+
             column['model'] = keras.models.Model(
                 inputs=inputs.values(), outputs=column['output'])
             column['model'].compile(
