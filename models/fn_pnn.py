@@ -40,9 +40,9 @@ class PNN(Model):
             r.setstate(state)
             r.shuffle(csi)
 
-            for column_index, column_repetitions in enumerate(remainder):
+            for column_index, column_repetitions in enumerate(remainder, start=1):
                 col_val, col_train = next(column_repetitions)
-                column_subject = csi[column_index] if csi[column_index] < subject_index else csi[column_index] + 1
+                column_subject = csi[column_index-1] if csi[column_index-1] < subject_index else csi[column_index-1] + 1
 
                 print('Column {}/{}'.format(column_index + 1, len(columns)))
 
