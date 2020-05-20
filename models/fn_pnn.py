@@ -42,9 +42,10 @@ class PNN(Model):
 
             for column_index, column_repetitions in enumerate(remainder, start=1):
                 col_val, col_train = next(column_repetitions)
-                column_subject = csi[column_index-1] if csi[column_index-1] < subject_index else csi[column_index-1] + 1
+                column_subject = csi[column_index-1] if csi[column_index -
+                                                            1] < subject_index else csi[column_index-1] + 1
 
-                print('Column {}/{}'.format(column_index + 1, len(columns)))
+                print('Column {}/{}'.format(column_index, len(columns)))
 
                 col_logdir = os.path.join(
                     subject_logdir, 'columns', '-'.join(['column', f'c{column_index}', f'cs{column_subject}']))
