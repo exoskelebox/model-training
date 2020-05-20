@@ -24,7 +24,6 @@ class PNN(Model):
             'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), f'pnn']))
 
         for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets(flatten_remainder=False), start=1):
-            print(f'\nSubject {subject_index}')
             subject_logdir = os.path.join(log_folder, f's{subject_index}')
             k_fold = []
             result = []
@@ -32,7 +31,7 @@ class PNN(Model):
             columns = self.build(hp=kt.HyperParameters(),
                                  num_columns=(1 + len(list(remainder))))
 
-            print('Subject {}/{}'.format(subject_index + 1, len(columns)))
+            print('Subject {}/{}'.format(subject_index, len(columns)))
 
             csi = [i for i in range(1, len(columns))]
             r = random.Random()
