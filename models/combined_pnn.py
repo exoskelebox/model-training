@@ -26,7 +26,6 @@ class Combined_PNN(Model):
             print(f'\nSubject {subject_index + 1}')
 
             for rep_index, (val, train) in enumerate(subject_repetitions):
-
                 # Firstly train a model on all the data except for the targeted subject
                 logdir = os.path.join(
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'pre_cpnn', f's{subject_index}', f'r{rep_index}']))
@@ -75,15 +74,25 @@ class Combined_PNN(Model):
                     epochs=epochs,
                     callbacks=[early_stop, tensorboard]
                 )
-
+                
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
 
             average = mean(k_fold)
             print(f'\nmean accuracy: {average}')
             subjects_accuracy.append(average)
+        
+            subject_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+            with subject_average.as_default():
+                tf.summary.text(f"subject_{subject_index}_average", str(subjects_accuracy), step=0)
+        
 
         total_average = mean(subjects_accuracy)
+
+        model_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+        with model_average.as_default():
+            tf.summary.text(f"model_average", str((total_average, subjects_accuracy)), step=1)
+            # tf.summary.text("Confusion Matrix", cm_image, step=epoch)
 
         return (total_average, subjects_accuracy)
 
