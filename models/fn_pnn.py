@@ -91,9 +91,17 @@ class PNN(Model):
             average = mean(k_fold)
             print(f'\nmean accuracy: {average}')
             subjects_accuracy.append(average)
+            
+            subject_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+            with subject_average.as_default():
+                tf.summary.text(f"subject_{subject_index}_average", str(subjects_accuracy), step=0)
 
         total_average = mean(subjects_accuracy)
 
+        model_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+        with model_average.as_default():
+            tf.summary.text(f"model_average", str((total_average, subjects_accuracy)), step=1)
+        
         return (total_average, subjects_accuracy)
 
     def build(self, hp=kt.HyperParameters()):
