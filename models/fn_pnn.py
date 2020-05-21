@@ -29,7 +29,7 @@ class PNN(Model):
             result = []
 
             columns = self.build(hp=kt.HyperParameters(),
-                                 num_columns=(1 + len(list(remainder))))
+                                 num_columns=(1 + len(remainder)))
 
             print('Subject {}/{}'.format(subject_index, len(columns)))
 
@@ -70,13 +70,12 @@ class PNN(Model):
 
             col_weights = [col['model'].get_weights() for col in columns]
 
-            for rep_index, (val, train) in enumerate(subject_repetitions):
+            for rep_index, (val, train) in enumerate(subject_repetitions, start=1):
 
                 for index, weight in enumerate(col_weights):
                     columns[index]['model'].set_weights(weight)
 
-                print('Repetition {}/{}'.format(rep_index +
-                                                1, len(list(subject_repetitions))))
+                print('Repetition {}'.format(rep_index))
 
                 rep_logdir = os.path.join(subject_logdir, f'r{rep_index}')
 
