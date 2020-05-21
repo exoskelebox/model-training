@@ -1,137 +1,191 @@
 from __future__ import absolute_import
+import os
+from .model import Model
+from human_gestures import HumanGestures
+import random
+from statistics import mean
 import tensorflow as tf
-import numpy as np
+import kerastuner as kt
+from datetime import datetime
+from callbacks import ConfusionMatrix
+from utils.data_utils import split
+import tqdm
 
 
-class PNN_Adapter(tf.keras.layers.Layer):
-    def __init__(self, units=2, activation='relu'):
-        super(PNN_Adapter, self).__init__()
-        self.units = units
-        self.activation = activation
-    
-    def build(self, input_shape):
-        self.a = self.add_weight(shape=(1,), 
-                                initializer='random_normal',
-                                trainable=True)
-        self.dense = tf.keras.layers.Dense(self.units, activation=self.activation)
+class PNN(Model):
+    def __init__(self):
+        self.name = 'pnn'
+        self.logdir = os.path.join(
+            'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), self.name]))
 
-    #call() is where we do the computation.
-    def call(self, inputs):
-        x = tf.multiply(inputs, self.a)
-        x = self.dense(x)
-        return x
+    def run_model(self, batch_size, epochs, hp=kt.HyperParameters()):
+        subjects_accuracy = []
+        summary_writer = tf.summary.create_file_writer(
+            self.logdir)
 
+        for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets(flatten_remainder=False), start=1):
+            subject_logdir = os.path.join(self.logdir, f's{subject_index}')
+            subject_summary_writer = tf.summary.create_file_writer(
+                subject_logdir)
+            k_fold = []
+            result = []
 
-class PNN_Column(tf.keras.Model):
-    def __init__(self, layer_info:dict, generation:int=0, feature_layer=None):
-        super(PNN_Column, self).__init__()
-        self._layerinfo = layer_info
-        self.layer_outputs = [None for _ in layer_info['core']]
-        self.generation = generation
-        self.feature_layer = feature_layer
+            columns = self.build(hp=kt.HyperParameters(),
+                                 num_columns=(1 + len(remainder)))
 
-    def build(self, input_shape):
-        core_info = self._layerinfo['core']
-        self.core_layers = [layer_info['type'](
-            units=layer_info['units'], 
-            activation=layer_info['activation']) 
-            for layer_info in core_info]
+            print('Subject {}/{}'.format(subject_index, len(columns)))
 
-        adapter_info = self._layerinfo['adapters']
-        self.adapter_layers = [[None for j in range(len(self.core_layers)-1)] 
-        # First layer doesnt get input from pretrained models
-            for i in range(self.generation)]
-        
-        for i in range(self.generation):
-            for j in range(len(self.core_layers)-1):
-                # First layer doesnt get input from pretrained models
-                adapter = adapter_info['type'](
-                    units=adapter_info['units'], 
-                    activation=adapter_info['activation'])
-                adapter.build(core_info[j]['units'])
-                self.adapter_layers[i][j] = adapter
+            csi = [i for i in range(1, len(columns))]
+            r = random.Random()
+            state = r.getstate()
+            r.shuffle(remainder)
+            r.setstate(state)
+            r.shuffle(csi)
 
-    def call(self, inputs):
-        y = inputs[0]
-        if self.feature_layer:
-            y = self.feature_layer(y)
+            for column_index, column_repetitions in enumerate(remainder, start=1):
+                col_val, col_train = next(column_repetitions)
+                column_subject = csi[column_index-1] if csi[column_index -
+                                                            1] < subject_index else csi[column_index-1] + 1
 
-        pretrained_outputs = inputs[1:]
-        for i in range(len(self.core_layers)):
-            if self.generation >= 1 and i >= 1: 
-                # First layer doesnt get input from pretrained models
-                adapted_pretrained_outputs = [self.adapter_layers[j][i-1](
-                    pretrained_outputs[j][i-1]) for j in range(self.generation)]
-                y = tf.keras.layers.concatenate(
-                    [y, *adapted_pretrained_outputs])
-            y = self.core_layers[i](y)
-            self.layer_outputs[i] = y
-        return self.layer_outputs
- 
+                print('Column {}/{}'.format(column_index, len(columns)))
 
-class PNN_Model(tf.keras.Model):
-    def __init__(self, feature_layer=lambda x: x, columns=[]):
-        super(PNN_Model, self).__init__()
-        self.columns = columns
-        self.feature_layer = feature_layer
-        
-        for column in self.columns[:-1]:
-            # Freeze all but the last column
-            column.trainable = False
+                col_logdir = os.path.join(
+                    subject_logdir, 'columns', '-'.join(['column', f'c{column_index}', f'cs{column_subject}']))
+                col_tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=col_logdir)
 
-    def call(self, inputs):
-        y = [self.feature_layer(inputs)]
-        for column in self.columns:
-            y.append(column(y))
-        return y[-1][-1] # return the output of the last layer of the last column
-        
+                early_stop = tf.keras.callbacks.EarlyStopping(
+                    monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
+                    patience=10)
 
-def test_adapter():
-    x = tf.ones((5, 5))
-    adapter = PNN_Adapter(units=5)
-    print(x)
-    y = adapter(x)
-    print(y.numpy())
-    print(adapter.weights)
+                col_model = columns[column_index]
+                col_model.fit(
+                    col_train.shuffle(2**14),
+                    validation_data=col_val,
+                    epochs=epochs,
+                    callbacks=[early_stop, col_tensorboard]
+                )
 
+                # Freeze the layers
+                for layer in col_model.layers[1:]:
+                    layer.trainable = False
 
-def test_layered():
-    x = tf.ones((2, 2))
-    adapters = {
-        'type':tf.keras.layers.Dense, 
-        'units':3, 
-        'activation':'relu'} 
-    core = [{
-        'type':tf.keras.layers.Dense, 
-        'units':5, 
-        'activation':'relu'} 
-        for i in range(3)]
-    layer_info = {'core':core, 'adapters':adapters}
+            col_weights = [col.get_weights() for col in columns]
 
-    column_0 = PNN_Column(layer_info)
-    model_0 = PNN_Model(columns=[column_0])
-    model_0.build(x.shape)
+            for rep_index, (val, train) in enumerate(subject_repetitions, start=1):
+                rep_logdir = os.path.join(subject_logdir, f'r{rep_index}')
+                rep_summary_writer = tf.summary.create_file_writer(rep_logdir)
 
-    column_1 = PNN_Column(layer_info, generation=1)
-    model_1 = PNN_Model(columns=[column_0, column_1])
-    model_1.build(x.shape)
+                for index, weight in enumerate(col_weights):
+                    columns[index].set_weights(weight)
 
-    #model.build(x.shape)
-    #model.outputs=[l.output for l in model.core_layers]
-    print(f"Inputs:\n{x}")
-    y = model_1(x)
-    print(f"Output:\n {y.numpy()}")
-    print(f"Outputs:\n {model_1.column_outputs}")
-    #print(f"Weigths:\n {model.weights}")
-    print(f"Summary: model_0")
-    model_0.summary()
-    print(f"Summary: model_1")
-    model_1.summary()    
-    print(f"Summary: column_0")
-    column_0.summary()    
-    print(f"Summary: column_1")
-    column_1.summary()    
+                print('Repetition {}'.format(rep_index))
 
+                tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=rep_logdir)
 
-if __name__ == "__main__":
-    test_layered()
+                early_stop = tf.keras.callbacks.EarlyStopping(
+                    monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
+                    patience=10)
+
+                model = columns[-1]
+                val, test = split(val)
+
+                cm = ConfusionMatrix(test, model, rep_logdir)
+                model.fit(
+                    train.shuffle(2**14),
+                    validation_data=val,
+                    epochs=epochs,
+                    callbacks=[early_stop, tensorboard, cm]
+                )
+
+                result = model.evaluate(test)
+                k_fold.append(result[-1])
+
+                with rep_summary_writer.as_default():
+                    tf.summary.text('rep_accuracy', str(
+                        result[-1]), step=rep_index)
+
+                model.save(os.path.join(rep_logdir, 'model.h5'))
+
+            average = mean(k_fold)
+            print('\nmean_accuracy: {:.4f}'.format(average))
+            subjects_accuracy.append(average)
+
+            with subject_summary_writer.as_default():
+                tf.summary.text('sub_accuracy', str(
+                    average), step=subject_index)
+
+        total_average = mean(subjects_accuracy)
+
+        with summary_writer.as_default():
+            tf.summary.text('model_accuracy', str(
+                (total_average, subjects_accuracy)))
+
+        return (total_average, subjects_accuracy)
+
+    def build(self, hp=kt.HyperParameters(), num_columns=20):
+        exponent = hp.Int('exponent',
+                          min_value=4,
+                          max_value=10,
+                          default=6,
+                          step=1)
+        adapter_exponent = hp.Int('adapter_exponent',
+                                  min_value=2,
+                                  max_value=6,
+                                  default=4,
+                                  step=1)
+        dropout = hp.Float('dropout',
+                           min_value=0.0,
+                           default=0.2,
+                           max_value=0.5,
+                           step=0.1)
+
+        columns = []
+
+        # Input layer
+        inputs = HumanGestures.feature_inputs()
+
+        feature_layer = HumanGestures.feature_layer(['readings'])(inputs)
+
+        for i in tqdm.trange(num_columns, desc='Building columns'):
+
+            # Hidden 1
+            x = tf.keras.layers.Dense(
+                2**exponent, activation='relu', name='dense_1_{}'.format(i))(feature_layer)
+            x = tf.keras.layers.Dropout(0.2, name='dropout_1_{}'.format(i))(x)
+
+            ada_x = [tf.keras.layers.Dense(2**adapter_exponent, activation='relu', name='adapter_1_{}_{}'.format(
+                i, j))(columns[j].get_layer('dense_1_{}'.format(j)).output) for j in range(i)]
+
+            x = tf.keras.layers.concatenate(
+                [x, *ada_x], name='concat_1_{}'.format(i)) if ada_x else x
+
+            # Hidden 2
+            x = tf.keras.layers.Dense(
+                2**exponent, activation='relu', name='dense_2_{}'.format(i))(x)
+            x = tf.keras.layers.Dropout(0.2, name='dropout_2_{}'.format(i))(x)
+
+            ada_x = [tf.keras.layers.Dense(2**adapter_exponent, activation='relu', name='adapter_2_{}_{}'.format(
+                i, j))(columns[j].get_layer('dense_2_{}'.format(j)).output) for j in range(i)]
+
+            x = tf.keras.layers.concatenate(
+                [x, *ada_x], name='concat_2_{}'.format(i)) if ada_x else x
+
+            # Output
+            outputs = tf.keras.layers.Dense(
+                18, activation='softmax', name='output_{}'.format(i))(x)
+
+            model = tf.keras.models.Model(
+                inputs=inputs.values(), outputs=outputs)
+
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(
+                    hp.Choice('learning_rate',
+                              values=[1e-2, 1e-3, 1e-4], default=1e-3)),
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy'])
+
+            columns.append(model)
+
+        return columns
