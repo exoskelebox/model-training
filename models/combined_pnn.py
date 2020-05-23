@@ -12,9 +12,14 @@ from datetime import datetime
 from callbacks import ConfusionMatrix
 import time
 from utils.data_utils import split, exclude
+from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 
 class Combined_PNN(Model):
+    def __init__(self, name=None, tunable=True):
+        super().__init__(name=name, tunable=tunable)
+        policy = mixed_precision.Policy('mixed_float16')
+        mixed_precision.set_policy(policy)
 
     def run_model(self, batch_size, epochs):
         subjects_accuracy = []
@@ -33,14 +38,14 @@ class Combined_PNN(Model):
                 # Split the dataset according to the given ratio
                 pre_train, pre_val = split(remainder, (8, 2))
 
-                pre_train = pre_train.shuffle(2**14)
+                pre_train = pre_train.shuffle(2**10)
 
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
                     patience=10)
 
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=logdir)
+                    log_dir=logdir, profile_batch='10,20')
 
                 pretrained, model = self.build(hp=kt.HyperParameters())
 
@@ -61,12 +66,13 @@ class Combined_PNN(Model):
 
                 # ... Then we train a model on the targeted subject in context of the other subjects
                 val, test = split(val)
-                train = train.shuffle(2**14)
+                train = train.shuffle(2**10)
 
                 logdir = os.path.join(
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'cpnn', f's{subject_index}', f'r{rep_index}']))
 
-                tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+                tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=logdir, profile_batch='10,20')
 
                 model.fit(
                     train,
@@ -74,24 +80,27 @@ class Combined_PNN(Model):
                     epochs=epochs,
                     callbacks=[early_stop, tensorboard]
                 )
-                
+
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
 
             average = mean(k_fold)
             print(f'\nmean accuracy: {average}')
             subjects_accuracy.append(average)
-        
-            subject_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+
+            subject_average = tf.summary.create_file_writer(
+                os.path.join(logdir, 'model_average'))
             with subject_average.as_default():
-                tf.summary.text(f"subject_{subject_index}_average", str(subjects_accuracy), step=0)
-        
+                tf.summary.text(f"subject_{subject_index}_average", str(
+                    subjects_accuracy), step=0)
 
         total_average = mean(subjects_accuracy)
 
-        model_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+        model_average = tf.summary.create_file_writer(
+            os.path.join(logdir, 'model_average'))
         with model_average.as_default():
-            tf.summary.text(f"model_average", str((total_average, subjects_accuracy)), step=1)
+            tf.summary.text(f"model_average", str(
+                (total_average, subjects_accuracy)), step=1)
             # tf.summary.text("Confusion Matrix", cm_image, step=epoch)
 
         return (total_average, subjects_accuracy)
@@ -102,7 +111,7 @@ class Combined_PNN(Model):
                           max_value=10,
                           default=6,
                           step=1)
-        adapter_exponent = hp.Int('exponent',
+        adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,
                                   max_value=6,
                                   default=4,
@@ -113,87 +122,46 @@ class Combined_PNN(Model):
                            max_value=0.5,
                            step=0.1)
 
-        # Input layer
-        inputs = HumanGestures.feature_inputs()
-
-        feature_layer = HumanGestures().feature_layer([
-            # 'subject_gender',
-            # 'subject_age',
-            # 'subject_fitness',
-            # 'subject_handedness',
-            # 'subject_wrist_circumference',
-            # 'subject_forearm_circumference',
-            # 'repetition',
-            'readings',
-            # 'wrist_calibration_iterations',
-            # 'wrist_calibration_values',
-            # 'arm_calibration_iterations',
-            # 'arm_calibration_values'
-        ])(inputs)
+        inputs = tf.keras.layers.Input((15,))
 
         # 1st hidden layer
-        pretrained_dense_1 = layers.Dense(2**exponent, activation='relu')
-        y = pretrained_dense_1(feature_layer)
-        adapter_1 = layers.Dense(2**adapter_exponent, activation='relu')
-        a = adapter_1(y)
-        dense_1 = layers.Dense(2**exponent, activation='relu')
-        x = dense_1(feature_layer)
+        x = layers.Dense(2**exponent, activation='relu')(inputs)
+        y = layers.Dense(2**exponent, activation='relu')(inputs)
+        a = layers.Dense(2**adapter_exponent, activation='relu')(y)
 
         # 1st dropout layer
-        pretrained_dropout_1 = layers.Dropout(dropout)
-        y = pretrained_dropout_1(y)
-        dropout_1 = layers.Dropout(dropout)
-        x = dropout_1(x)
+        x = layers.Dropout(dropout)(x)
+        x = layers.concatenate([x, a])
+        y = layers.Dropout(dropout)(y)
 
         # 2nd hidden layer
-        x = layers.concatenate([x, a])
-        pretrained_dense_2 = layers.Dense(2**exponent, activation='relu')
-        y = pretrained_dense_2(y)
-        adapter_2 = layers.Dense(2**adapter_exponent, activation='relu')
-        a = adapter_2(y)
-        dense_2 = layers.Dense(2**exponent, activation='relu')
-        x = dense_2(x)
+        x = layers.Dense(2**exponent, activation='relu')(x)
+        y = layers.Dense(2**exponent, activation='relu')(y)
+        a = layers.Dense(2**adapter_exponent, activation='relu')(y)
 
         # 2nd dropout layer
-        pretrained_dropout_2 = layers.Dropout(dropout)
-        y = pretrained_dropout_2(y)
-        dropout_2 = layers.Dropout(dropout)
-        x = dropout_2(x)
-
-        # 3rd hidden layer
+        x = layers.Dropout(dropout)(x)
         x = layers.concatenate([x, a])
-        pretrained_dense_3 = layers.Dense(2**exponent, activation='relu')
-        y = pretrained_dense_3(y)
-        adapter_3 = layers.Dense(2**adapter_exponent, activation='relu')
-        a = adapter_3(y)
-        dense_3 = layers.Dense(2**exponent, activation='relu')
-        x = dense_3(x)
-
-        # 3rd dropout layer
-        pretrained_dropout_3 = layers.Dropout(dropout)
-        y = pretrained_dropout_3(y)
-        dropout_3 = layers.Dropout(dropout)
-        x = dropout_3(x)
+        y = layers.Dropout(dropout)(y)
 
         # Output layer
-        pretrained_output = layers.Dense(18, activation='softmax')(y)
+        y = layers.Dense(18, activation='softmax',
+                         dtype='float32')(y)
+
         pretrained_model = keras.models.Model(
-            inputs=inputs.values(), outputs=pretrained_output)
+            inputs=inputs, outputs=y)
+
         pretrained_model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                hp.Choice('learning_rate',
-                          values=[1e-2, 1e-3, 1e-4], default=1e-3)),
+            optimizer=tf.keras.optimizers.Adam(1e-2),
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy'])
 
-        x = layers.concatenate([x, a])
-        model_output = layers.Dense(18, activation='softmax')(x)
+        x = layers.Dense(18, activation='softmax', dtype='float32')(x)
+
         model = keras.models.Model(
-            inputs=inputs.values(), outputs=model_output)
+            inputs=inputs, outputs=x)
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                hp.Choice('learning_rate',
-                          values=[1e-2, 1e-3, 1e-4], default=1e-3)),
+            optimizer=tf.keras.optimizers.Adam(1e-3),
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy'])
 

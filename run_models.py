@@ -1,15 +1,8 @@
 import os
 import logging
-
-logging.getLogger('tensorflow').setLevel(logging.ERROR)  # nopep8
-os.environ["KMP_AFFINITY"] = "noverbose"  # nopep8
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # nopep8
-
 import tensorflow as tf
 from models import Dense, PNN, Combined_PNN
 
-tf.get_logger().setLevel(logging.ERROR)
-tf.autograph.set_verbosity(3)
 
 # create results logger
 logger = logging.getLogger('results')
@@ -52,4 +45,4 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
 
 if __name__ == "__main__":
-    run_models(['pnn'], 1024, 100)
+    run_models(['pnn'], 2**10, 100)

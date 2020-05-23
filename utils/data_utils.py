@@ -27,7 +27,7 @@ def exclude(key, val, dtype):
     return pred
 
 
-def split(dataset, ratios=(1, 1), offset=0):
+def split_old(dataset, ratios=(1, 1), offset=0):
     """
     Splits data according to provided ratios. Returns list of datasets.
     """
@@ -52,6 +52,20 @@ def split(dataset, ratios=(1, 1), offset=0):
         offset += ratio
 
     return subsets
+
+
+def split(dataset, ratios=(1, 1)):
+    assert len(ratios) == 2
+
+    @tf.function
+    def flatten_nested(*ds):
+        return ds[0] if len(ds) == 1 else tf.data.Dataset.zip(ds)
+
+    r1, r2 = ratios
+
+    d1 = dataset.window(r1, r1 + r2).flat_map(flatten_nested)
+    d2 = dataset.skip(r1).window(r2, r1 + r2).flat_map(flatten_nested)
+    return d1, d2
 
 
 def shuffle(*datasets, buffer_size=2**14, seed=None, reshuffle_each_iteration=None):

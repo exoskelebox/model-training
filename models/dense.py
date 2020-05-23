@@ -9,9 +9,14 @@ from datetime import datetime
 from callbacks import ConfusionMatrix
 from human_gestures import HumanGestures
 from utils.data_utils import feature_fold, shuffle, split
+from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 
 class Dense(Model):
+    def __init__(self, name=None, tunable=True):
+        super().__init__(name=name, tunable=tunable)
+        policy = mixed_precision.Policy('mixed_float16')
+        mixed_precision.set_policy(policy)
 
     def run_model(self, batch_size, epochs):
         subjects_accuracy = []
@@ -23,7 +28,7 @@ class Dense(Model):
 
             for rep_index, (val, train) in enumerate(subject_repetitions):
                 val, test = split(val)
-                train = train.shuffle(2**14)
+                train = train.shuffle(2**10)
 
                 logdir = os.path.join(
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'dense', f's{subject_index}', f'r{rep_index}']))
@@ -31,16 +36,15 @@ class Dense(Model):
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
                     patience=10)
-                tensorboard = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+                tensorboard = tf.keras.callbacks.TensorBoard(
+                    log_dir=logdir, profile_batch='10,20')
 
                 model = self.build(hp=kt.HyperParameters())
-
-                cm = ConfusionMatrix(test, model, logdir)
 
                 model.fit(train,
                           validation_data=val,
                           epochs=epochs,
-                          callbacks=[early_stop, tensorboard, cm])
+                          callbacks=[tensorboard])
 
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
@@ -48,16 +52,20 @@ class Dense(Model):
             average = mean(k_fold)
             print(f'\nmean accuracy: {average}')
             subjects_accuracy.append(average)
-        
-            subject_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+
+            subject_average = tf.summary.create_file_writer(
+                os.path.join(logdir, 'model_average'))
             with subject_average.as_default():
-                tf.summary.text(f"subject_{subject_index}_average", str(subjects_accuracy), step=0)
-        
+                tf.summary.text(f"subject_{subject_index}_average", str(
+                    subjects_accuracy), step=0)
+
         total_average = mean(subjects_accuracy)
 
-        model_average = tf.summary.create_file_writer(os.path.join(logdir, 'model_average'))           
+        model_average = tf.summary.create_file_writer(
+            os.path.join(logdir, 'model_average'))
         with model_average.as_default():
-            tf.summary.text(f"model_average", str((total_average, subjects_accuracy)), step=1)
+            tf.summary.text(f"model_average", str(
+                (total_average, subjects_accuracy)), step=1)
 
         return (total_average, subjects_accuracy)
 
@@ -74,25 +82,11 @@ class Dense(Model):
                            step=0.1)
 
         model = tf.keras.Sequential([
-            HumanGestures.feature_layer([
-                # 'subject_gender',
-                # 'subject_age',
-                # 'subject_fitness',
-                # 'subject_handedness',
-                # 'subject_wrist_circumference',
-                # 'subject_forearm_circumference',
-                # 'repetition',
-                'readings',
-                # 'wrist_calibration_iterations',
-                # 'wrist_calibration_values',
-                # 'arm_calibration_iterations',
-                # 'arm_calibration_values'
-            ]),
             tf.keras.layers.Dense(2**exponent, activation='relu'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(2**exponent, activation='relu'),
             tf.keras.layers.Dropout(dropout),
-            tf.keras.layers.Dense(18, activation='softmax')
+            tf.keras.layers.Dense(18, activation='softmax', dtype='float32')
         ])
 
         model.compile(

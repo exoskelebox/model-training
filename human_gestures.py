@@ -1,10 +1,10 @@
 import tensorflow as tf
 import types
 from pathlib import Path
-from utils.data_utils import benchmark, feature_fold, key_val_split, split
 from utils.iter_utils import fold
 import os
 from itertools import tee
+from datetime import datetime
 
 
 class HumanGestures():
@@ -19,56 +19,6 @@ class HumanGestures():
             fname, origin, extract=True, file_hash='4179d27b9771e683878db9f927464391')
         return Path(path.rsplit('.', 2)[0])
 
-    @staticmethod
-    def feature_description():
-        """
-        Feature description dictionary.
-        """
-        return {
-            'subject_id': tf.io.FixedLenFeature([], tf.int64),
-            'gesture': tf.io.FixedLenFeature([], tf.string),
-            'repetition': tf.io.FixedLenFeature([], tf.int64),
-            'readings': tf.io.FixedLenFeature([15], tf.float32),
-            'label': tf.io.FixedLenFeature([], tf.int64)
-        }
-
-    @staticmethod
-    def feature_inputs():
-        """
-        Feature input dictionary, used for the construction of models using the functional Keras API.
-        """
-        return {
-            'repetition': tf.keras.Input((1,), dtype=tf.int64, name='repetition'),
-            'readings': tf.keras.Input((15,), dtype=tf.float32, name='readings')
-        }
-
-    @staticmethod
-    def feature_layer(cols: [] = None) -> tf.keras.layers.Dense:
-
-        def _numeric_column(shape=(1,), default_value=None, dtype=tf.dtypes.float32, normalizer_fn=None):
-            return lambda key: tf.feature_column.numeric_column(
-                key,
-                shape=shape,
-                default_value=default_value,
-                dtype=dtype,
-                normalizer_fn=normalizer_fn)
-
-        feature_columns = {
-            'repetition': _numeric_column(dtype=tf.uint16),
-            'readings':  _numeric_column(dtype=tf.float32, shape=15),
-        }
-
-        valid_cols = feature_columns.keys()
-
-        if not cols:
-            cols = valid_cols
-
-        if not set(cols).issubset(valid_cols):
-            exit(
-                f"One or more invalid feature column names, valid feature column names are {', '.join(valid_cols)}.")
-
-        return tf.keras.layers.DenseFeatures([feature_columns[col](col) for col in cols])
-
     @property
     def batch_size(self):
         return self._batch_size
@@ -81,14 +31,23 @@ class HumanGestures():
 
         def parse_batch(example_protos):
             parsed_examples = tf.io.parse_example(
-                example_protos, self.feature_description())
-            return parsed_examples, parsed_examples.pop('label')
+                example_protos, {
+                    # 'subject_id': tf.io.FixedLenFeature([], tf.int64),
+                    # 'gesture': tf.io.FixedLenFeature([], tf.string),
+                    # 'repetition': tf.io.FixedLenFeature([], tf.int64),
+                    'readings': tf.io.FixedLenFeature(shape=(15), dtype=tf.float32),
+                    'label': tf.io.FixedLenFeature(shape=(), dtype=tf.int64)
+                })
+            return parsed_examples['readings'], parsed_examples['label']
 
         if isinstance(file_or_files, (list, types.GeneratorType)):
+            files = list(map(str, file_or_files))
+
             dataset = tf.data.Dataset\
-                .from_tensor_slices(list(map(str, file_or_files)))\
+                .from_tensor_slices(files)\
+                .shuffle(buffer_size=len(files), reshuffle_each_iteration=False)\
                 .interleave(
-                    tf.data.TFRecordDataset,
+                    map_func=tf.data.TFRecordDataset,
                     cycle_length=tf.data.experimental.AUTOTUNE,
                     num_parallel_calls=tf.data.experimental.AUTOTUNE)
         else:
@@ -99,14 +58,15 @@ class HumanGestures():
                 batch_size=self.batch_size, drop_remainder=True)\
             .map(
                 map_func=parse_batch,
-                num_parallel_calls=tf.data.experimental.AUTOTUNE)\
-            .prefetch(tf.data.experimental.AUTOTUNE)
+                num_parallel_calls=tf.data.experimental.AUTOTUNE
+            )\
+            .cache()
 
     def dataset(self):
         """
         Returns a dataset with all the human gestures data
         """
-        return self._dataset(self.path().glob('*.tfrecord'))
+        return self._dataset(self.path().rglob('*.tfrecord'))
 
     def subject_datasets(self, fold_current=True, flatten_remainder=True):
         subject_paths = [Path(f.path)

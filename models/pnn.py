@@ -7,14 +7,16 @@ from statistics import mean
 import tensorflow as tf
 import kerastuner as kt
 from datetime import datetime
-from callbacks import ConfusionMatrix
 from utils.data_utils import split
 import tqdm
+from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 
 class PNN(Model):
-    def __init__(self):
-        self.name = 'pnn'
+    def __init__(self, name='pnn', tunable=True):
+        super().__init__(name=name, tunable=tunable)
+        policy = mixed_precision.Policy('mixed_float16')
+        mixed_precision.set_policy(policy)
         self.logdir = os.path.join(
             'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), self.name]))
 
@@ -33,7 +35,7 @@ class PNN(Model):
             columns = self.build(hp=kt.HyperParameters(),
                                  num_columns=(1 + len(remainder)))
 
-            print('Subject {}/{}'.format(subject_index, len(columns)))
+            tf.print('Subject {}/{}'.format(subject_index, len(columns)))
 
             csi = [i for i in range(1, len(columns))]
             r = random.Random()
@@ -47,12 +49,12 @@ class PNN(Model):
                 column_subject = csi[column_index-1] if csi[column_index -
                                                             1] < subject_index else csi[column_index-1] + 1
 
-                print('Column {}/{}'.format(column_index, len(columns)))
+                tf.print('Column {}/{}'.format(column_index, len(columns)))
 
                 col_logdir = os.path.join(
                     subject_logdir, 'columns', '-'.join(['column', f'c{column_index}', f'cs{column_subject}']))
                 col_tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=col_logdir)
+                    log_dir=col_logdir, profile_batch=0)
 
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
@@ -60,7 +62,7 @@ class PNN(Model):
 
                 col_model = columns[column_index]
                 col_model.fit(
-                    col_train.shuffle(2**14),
+                    col_train.shuffle(2**10),
                     validation_data=col_val,
                     epochs=epochs,
                     callbacks=[early_stop, col_tensorboard]
@@ -79,10 +81,10 @@ class PNN(Model):
                 for index, weight in enumerate(col_weights):
                     columns[index].set_weights(weight)
 
-                print('Repetition {}'.format(rep_index))
+                tf.print('Repetition {}'.format(rep_index))
 
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=rep_logdir)
+                    log_dir=rep_logdir, profile_batch=0)
 
                 early_stop = tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
@@ -91,36 +93,35 @@ class PNN(Model):
                 model = columns[-1]
                 val, test = split(val)
 
-                cm = ConfusionMatrix(test, model, rep_logdir)
                 model.fit(
-                    train.shuffle(2**14),
+                    train.shuffle(2**10),
                     validation_data=val,
                     epochs=epochs,
-                    callbacks=[early_stop, tensorboard, cm]
+                    callbacks=[early_stop, tensorboard]
                 )
 
                 result = model.evaluate(test)
                 k_fold.append(result[-1])
 
-                with rep_summary_writer.as_default():
+                """ with rep_summary_writer.as_default():
                     tf.summary.text('rep_accuracy', str(
-                        result[-1]), step=rep_index)
+                        result[-1]), step=rep_index) """
 
-                model.save(os.path.join(rep_logdir, 'model.h5'))
+                #model.save(os.path.join(rep_logdir, 'model.h5'))
 
             average = mean(k_fold)
-            print('\nmean_accuracy: {:.4f}'.format(average))
+            tf.print('\nmean_accuracy: {:.4f}'.format(average))
             subjects_accuracy.append(average)
 
-            with subject_summary_writer.as_default():
+            """ with subject_summary_writer.as_default():
                 tf.summary.text('sub_accuracy', str(
-                    average), step=subject_index)
+                    average), step=subject_index) """
 
         total_average = mean(subjects_accuracy)
 
-        with summary_writer.as_default():
+        """ with summary_writer.as_default():
             tf.summary.text('model_accuracy', str(
-                (total_average, subjects_accuracy)))
+                (total_average, subjects_accuracy))) """
 
         return (total_average, subjects_accuracy)
 
@@ -144,15 +145,13 @@ class PNN(Model):
         columns = []
 
         # Input layer
-        inputs = HumanGestures.feature_inputs()
-
-        feature_layer = HumanGestures.feature_layer(['readings'])(inputs)
+        inputs = tf.keras.layers.Input((15,))
 
         for i in tqdm.trange(num_columns, desc='Building columns'):
 
             # Hidden 1
             x = tf.keras.layers.Dense(
-                2**exponent, activation='relu', name='dense_1_{}'.format(i))(feature_layer)
+                2**exponent, activation='relu', name='dense_1_{}'.format(i))(inputs)
             x = tf.keras.layers.Dropout(0.2, name='dropout_1_{}'.format(i))(x)
 
             ada_x = [tf.keras.layers.Dense(2**adapter_exponent, activation='relu', name='adapter_1_{}_{}'.format(
@@ -174,10 +173,10 @@ class PNN(Model):
 
             # Output
             outputs = tf.keras.layers.Dense(
-                18, activation='softmax', name='output_{}'.format(i))(x)
+                18, activation='softmax', name='output_{}'.format(i), dtype='float32')(x)
 
             model = tf.keras.models.Model(
-                inputs=inputs.values(), outputs=outputs)
+                inputs=inputs, outputs=outputs)
 
             model.compile(
                 optimizer=tf.keras.optimizers.Adam(
