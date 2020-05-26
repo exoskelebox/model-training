@@ -27,7 +27,7 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 
-def run_models(selected_models=[], batch_size=1024, epochs=5, resume=None):
+def run_models(selected_models=[], batch_size=1024, epochs=5):
 
     models_config = {
         'dense': Dense,
@@ -37,7 +37,7 @@ def run_models(selected_models=[], batch_size=1024, epochs=5, resume=None):
 
     for current_model in selected_models:
 
-        model = models_config[current_model](resume=resume)
+        model = models_config[current_model]()
 
         results = model.run_model(batch_size, epochs)
 
@@ -45,4 +45,4 @@ def run_models(selected_models=[], batch_size=1024, epochs=5, resume=None):
 
 
 if __name__ == "__main__":
-    run_models(['pnn'], 2**10, 100, resume=None)
+    run_models(['pnn'], 2**10, 100)

@@ -1,4 +1,10 @@
-def fold(list):
-    for i, current in enumerate(list):
-        rest = list[:i] + list[i+1:]
+import numpy as np
+
+
+def fold(lst):
+    if isinstance(lst, np.ndarray):
+        lst = lst.tolist()
+
+    for i, current in enumerate(lst):
+        rest = lst[:i] + lst[i+1:]
         yield current,  rest

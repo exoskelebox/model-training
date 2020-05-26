@@ -3,7 +3,7 @@ import os
 from .model import Model
 from human_gestures import HumanGestures
 import random
-from statistics import mean, stdev
+from statistics import mean
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -13,117 +13,90 @@ from callbacks import ConfusionMatrix
 import time
 from utils.data_utils import split, exclude
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
-import shutil
-from ast import literal_eval
+import pandas as pd
+from sklearn.model_selection import LeaveOneGroupOut, train_test_split
+import numpy as np
 
 
 class Combined_PNN(Model):
-    def __init__(self, name='cpnn', tunable=True, resume=None):
+    def __init__(self, name=datetime.now().strftime("%Y%m%d-%H%M%S"), tunable=True):
         super().__init__(name=name, tunable=tunable)
         policy = mixed_precision.Policy('mixed_float16')
         mixed_precision.set_policy(policy)
-        if resume:
-            self.logdir = os.path.join(
-                'logs', resume)
-            self.resumed = True
-        else:
-            self.logdir = os.path.join(
-                'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), self.name]))
-            self.resumed = False
 
-    def run_model(self, batch_size, epochs):
-        subjects_accuracy = []
-        if self.resumed:
-            subjects_accuracy = self._resume()
+    def run_model(self, batch_size, epochs, skip=0):
+        fname = 'hgest.hdf'
+        origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
+        path: str = tf.keras.utils.get_file(
+            fname, origin)
+        key = 'normalized'
+        df = pd.read_hdf(path, key)
 
-        summary_writer = tf.summary.create_file_writer(
-            self.logdir)
+        subject_results = []
 
-        for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets()):
-            if subject_index < 1 + len(subjects_accuracy):
-                continue
-            subject_logdir = os.path.join(self.logdir, f's{subject_index}')
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
+            patience=10)
 
-            subject_summary_writer = tf.summary.create_file_writer(
-                subject_logdir)
+        sensor_cols = [
+            col for col in df.columns if col.startswith('sensor')]
 
-            k_fold = []
+        logdir = os.path.join('logs', self.name)
+
+        subject_ids = df.subject_id.to_numpy()
+        repetitions = df.repetition.to_numpy()
+        x = df[sensor_cols].to_numpy()
+        y = df.label.to_numpy()
+
+        logo = LeaveOneGroupOut().split(x, y, groups=subject_ids)
+        [logo.next() for _ in range(skip)]
+
+        for subject_index, (source_index, target_index) in enumerate(logo, start=(skip + 1)):
+            print('Subject {}/{}'.format(subject_index, len(np.unique(subject_ids))))
+            x_source, y_source = x[source_index], y[source_index]
+
+            x_train, x_test, y_train, y_test = train_test_split(
+                x_source, y_source, stratify=y_source)
+
             result = []
-            pretrained_weights = []
-            tf.print(f'\nSubject {subject_index + 1}')
 
-            for rep_index, (val, train) in enumerate(subject_repetitions, start=1):
-                rep_logdir = os.path.join(subject_logdir, f'r{rep_index}')
+            source_model, target_model = self.build(hp=kt.HyperParameters())
 
-                tf.print('Repetition {}'.format(rep_index))
+            source_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                x_test, y_test), callbacks=[early_stop])
 
-                # Firstly train a model on all the data except for the targeted subject
-                pretrained_logdir = os.path.join(
-                    rep_logdir, 'pretrained')
-                pretrained_summary_writer = tf.summary.create_file_writer(
-                    pretrained_logdir)
+            target_weights = target_model.get_weights()
 
-                # Split the dataset according to the given ratio
-                pre_train, pre_val = split(remainder, (8, 2))
+            x_target, y_target = x[target_index], y[target_index]
+            repetitions_target = repetitions[target_index]
 
-                pre_train = pre_train.shuffle(2**10)
-
-                early_stop = tf.keras.callbacks.EarlyStopping(
-                    monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
-                    patience=10)
+            for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x_target, y_target, groups=repetitions_target)):
+                target_model.set_weights(target_weights)
 
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=pretrained_logdir, profile_batch=0)
+                    log_dir=os.path.join(logdir, str(subject_index), str(rep_index)), profile_batch=0)
 
-                pretrained, model = self.build(hp=kt.HyperParameters())
+                x_train, y_train = x[train_index], y[train_index]
+                x_test, y_test = x[test_index], y[test_index]
 
-                if not pretrained_weights:
-                    pretrained.fit(
-                        pre_train,
-                        validation_data=pre_val,
-                        epochs=epochs,
-                        callbacks=[early_stop, tensorboard])
-                    pretrained_weights = pretrained.get_weights()
-                else:
-                    pretrained.set_weights(pretrained_weights)
+                x_val, x_test, y_val, y_test = train_test_split(
+                    x_test, y_test, test_size=0.5, stratify=y_test)
 
-                # Freeze the pretrained layers
-                for layer in pretrained.layers:
-                    layer.trainable = False
+                target_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                    x_val, y_val), callbacks=[early_stop, tensorboard])
 
-                # ... Then we train a model on the targeted subject in context of the other subjects
-                val, test = split(val)
-                train = train.shuffle(2**10)
+                result.append(target_model.evaluate(
+                    x_test, y_test, batch_size))
 
-                tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=rep_logdir, profile_batch='10,20')
+            mean = np.mean(result, axis=0).tolist()
 
-                model.fit(
-                    train,
-                    validation_data=val,
-                    epochs=epochs,
-                    callbacks=[early_stop, tensorboard]
-                )
+            print('eval_loss: {:.4f} - eval_accuracy: {:.4f}'.format(*mean))
 
-                result = model.evaluate(test)
-                k_fold.append(result[-1])
+            subject_results.append(mean)
 
-            average = mean(k_fold)
-            tf.print(f'\nmean accuracy: {average}')
-            subjects_accuracy.append(average)
-            standard_deviation = stdev(k_fold)
+        mean = np.mean(subject_results, axis=0).tolist()
 
-            with open(os.path.join(subject_logdir, 'results.txt'), 'w') as f:
-                f.write(
-                    str({'mean': average, 'stdev': standard_deviation, 'k_fold': k_fold}))
-
-        total_average = mean(subjects_accuracy)
-        total_standard_deviation = stdev(subjects_accuracy)
-        with open(os.path.join(self.logdir, 'results.txt'), 'w') as f:
-            f.write(str({'mean': total_average, 'stdev': total_standard_deviation,
-                         'subjects_accuracy': subjects_accuracy}))
-
-        return (total_average, subjects_accuracy)
+        return (mean, subject_results)
 
     def build(self, hp=kt.HyperParameters()):
         exponent = hp.Int('exponent',
@@ -186,16 +159,3 @@ class Combined_PNN(Model):
             metrics=['accuracy'])
 
         return pretrained_model, model
-
-    def _resume(self):
-        subjects = [f.path for f in os.scandir(self.logdir) if f.is_dir()]
-        subject_accuracies = []
-        for subject in subjects:
-            try:
-                with open(os.path.join(subject, 'results.txt'), 'r') as f:
-                    results = literal_eval(f.read())
-                    subject_accuracies.append(results['mean'])
-            except FileNotFoundError:
-                shutil.rmtree(subject)
-                continue
-        return subject_accuracies

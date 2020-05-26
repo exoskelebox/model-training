@@ -2,78 +2,83 @@ from __future__ import absolute_import
 import os
 from .model import Model
 import random
-from statistics import mean
 import tensorflow as tf
 import kerastuner as kt
 from datetime import datetime
 from callbacks import ConfusionMatrix
-from human_gestures import HumanGestures
-from utils.data_utils import feature_fold, shuffle, split
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
+import numpy as np
+import pandas as pd
+from utils.iter_utils import fold
+from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
 
 class Dense(Model):
-    def __init__(self, name=None, tunable=True):
+    def __init__(self, name=datetime.now().strftime("%Y%m%d-%H%M%S"), tunable=True):
         super().__init__(name=name, tunable=tunable)
         policy = mixed_precision.Policy('mixed_float16')
         mixed_precision.set_policy(policy)
 
     def run_model(self, batch_size, epochs):
-        subjects_accuracy = []
+        fname = 'hgest.hdf'
+        origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
+        path: str = tf.keras.utils.get_file(
+            fname, origin)
+        key = 'normalized'
+        df = pd.read_hdf(path, key)
 
-        for subject_index, (subject_repetitions, _) in enumerate(HumanGestures(batch_size).subject_datasets()):
-            k_fold = []
+        subject_results = []
+
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
+            patience=10)
+
+        subject_ids = df.subject_id.unique()
+        sensor_cols = [
+            col for col in df.columns if col.startswith('sensor')]
+
+        logdir = os.path.join('logs', self.name)
+
+        for subject_index, subject_id in enumerate(subject_ids, start=1):
+            print('Subject {}/{}'.format(subject_index, len(subject_ids)))
+            subject_df = df[df.subject_id == subject_id]
+
             result = []
-            print(f'\nSubject {subject_index + 1}')
 
-            for rep_index, (val, train) in enumerate(subject_repetitions):
-                val, test = split(val)
-                train = train.shuffle(2**10)
+            repetitions = subject_df.repetition.to_numpy()
+            x = subject_df[sensor_cols].to_numpy()
+            y = subject_df.label.to_numpy()
 
-                logdir = os.path.join(
-                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'dense', f's{subject_index}', f'r{rep_index}']))
+            for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
 
-                early_stop = tf.keras.callbacks.EarlyStopping(
-                    monitor='val_accuracy', min_delta=0.0001, restore_best_weights=True,
-                    patience=10)
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=logdir, profile_batch='10,20')
+                    log_dir=os.path.join(logdir, str(subject_index), str(rep_index)), profile_batch=0)
+
+                x_train, y_train = x[train_index], y[train_index]
+                x_test, y_test = x[test_index], y[test_index]
+
+                x_val, x_test, y_val, y_test = train_test_split(
+                    x_test, y_test, test_size=0.5, stratify=y_test)
 
                 model = self.build(hp=kt.HyperParameters())
+                model.fit(x_train, y_train, batch_size,
+                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, tensorboard])
 
-                model.fit(train,
-                          validation_data=val,
-                          epochs=epochs,
-                          callbacks=[tensorboard])
+                result.append(model.evaluate(x_test, y_test, batch_size))
 
-                result = model.evaluate(test)
-                k_fold.append(result[-1])
+            mean = np.mean(result, axis=0).tolist()
 
-            average = mean(k_fold)
-            print(f'\nmean accuracy: {average}')
-            subjects_accuracy.append(average)
+            subject_results.append(mean)
 
-            subject_average = tf.summary.create_file_writer(
-                os.path.join(logdir, 'model_average'))
-            with subject_average.as_default():
-                tf.summary.text(f"subject_{subject_index}_average", str(
-                    subjects_accuracy), step=0)
+        mean = np.mean(subject_results, axis=0).tolist()
 
-        total_average = mean(subjects_accuracy)
-
-        model_average = tf.summary.create_file_writer(
-            os.path.join(logdir, 'model_average'))
-        with model_average.as_default():
-            tf.summary.text(f"model_average", str(
-                (total_average, subjects_accuracy)), step=1)
-
-        return (total_average, subjects_accuracy)
+        return (mean, subject_results)
 
     def build(self, hp):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=6,
+                          default=7,
                           step=1)
         dropout = hp.Float('dropout',
                            min_value=0.0,
