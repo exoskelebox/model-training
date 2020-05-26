@@ -23,6 +23,7 @@ class KFoldTuner(kt.Tuner):
                 model.fit(train, validation_data=val, epochs=epochs)
                 model_val_accuracies.append(model.evaluate(test)[-1])
                 print()
+
             trial_val_accuracies.append(mean(model_val_accuracies))
 
         self.oracle.update_trial(

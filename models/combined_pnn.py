@@ -45,7 +45,7 @@ class Combined_PNN(Model):
                     patience=10)
 
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=logdir, profile_batch='10,20')
+                    log_dir=logdir, profile_batch=0)
 
                 pretrained, model = self.build(hp=kt.HyperParameters())
 
@@ -72,7 +72,7 @@ class Combined_PNN(Model):
                     'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'cpnn', f's{subject_index}', f'r{rep_index}']))
 
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=logdir, profile_batch='10,20')
+                    log_dir=logdir, profile_batch=0)
 
                 model.fit(
                     train,
@@ -88,20 +88,20 @@ class Combined_PNN(Model):
             print(f'\nmean accuracy: {average}')
             subjects_accuracy.append(average)
 
-            subject_average = tf.summary.create_file_writer(
+            """ subject_average = tf.summary.create_file_writer(
                 os.path.join(logdir, 'model_average'))
             with subject_average.as_default():
                 tf.summary.text(f"subject_{subject_index}_average", str(
-                    subjects_accuracy), step=0)
+                    subjects_accuracy), step=0) """
 
         total_average = mean(subjects_accuracy)
 
-        model_average = tf.summary.create_file_writer(
+        """ model_average = tf.summary.create_file_writer(
             os.path.join(logdir, 'model_average'))
         with model_average.as_default():
             tf.summary.text(f"model_average", str(
-                (total_average, subjects_accuracy)), step=1)
-            # tf.summary.text("Confusion Matrix", cm_image, step=epoch)
+                (total_average, subjects_accuracy)), step=1) """
+        # tf.summary.text("Confusion Matrix", cm_image, step=epoch)
 
         return (total_average, subjects_accuracy)
 
@@ -161,7 +161,7 @@ class Combined_PNN(Model):
         model = keras.models.Model(
             inputs=inputs, outputs=x)
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(1e-3),
+            optimizer=tf.keras.optimizers.Adam(1e-2),
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy'])
 
