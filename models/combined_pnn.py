@@ -3,7 +3,7 @@ import os
 from .model import Model
 from human_gestures import HumanGestures
 import random
-from statistics import mean
+from statistics import mean, stdev
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -13,27 +13,55 @@ from callbacks import ConfusionMatrix
 import time
 from utils.data_utils import split, exclude
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
+import shutil
+from ast import literal_eval
 
 
 class Combined_PNN(Model):
-    def __init__(self, name=None, tunable=True):
+    def __init__(self, name='cpnn', tunable=True, resume=None):
         super().__init__(name=name, tunable=tunable)
         policy = mixed_precision.Policy('mixed_float16')
         mixed_precision.set_policy(policy)
+        if resume:
+            self.logdir = os.path.join(
+                'logs', resume)
+            self.resumed = True
+        else:
+            self.logdir = os.path.join(
+                'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), self.name]))
+            self.resumed = False
 
     def run_model(self, batch_size, epochs):
         subjects_accuracy = []
+        if self.resumed:
+            subjects_accuracy = self._resume()
+
+        summary_writer = tf.summary.create_file_writer(
+            self.logdir)
 
         for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets()):
+            if subject_index < 1 + len(subjects_accuracy):
+                continue
+            subject_logdir = os.path.join(self.logdir, f's{subject_index}')
+
+            subject_summary_writer = tf.summary.create_file_writer(
+                subject_logdir)
+
             k_fold = []
             result = []
             pretrained_weights = []
-            print(f'\nSubject {subject_index + 1}')
+            tf.print(f'\nSubject {subject_index + 1}')
 
-            for rep_index, (val, train) in enumerate(subject_repetitions):
+            for rep_index, (val, train) in enumerate(subject_repetitions, start=1):
+                rep_logdir = os.path.join(subject_logdir, f'r{rep_index}')
+
+                tf.print('Repetition {}'.format(rep_index))
+
                 # Firstly train a model on all the data except for the targeted subject
-                logdir = os.path.join(
-                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'pre_cpnn', f's{subject_index}', f'r{rep_index}']))
+                pretrained_logdir = os.path.join(
+                    rep_logdir, 'pretrained')
+                pretrained_summary_writer = tf.summary.create_file_writer(
+                    pretrained_logdir)
 
                 # Split the dataset according to the given ratio
                 pre_train, pre_val = split(remainder, (8, 2))
@@ -45,7 +73,7 @@ class Combined_PNN(Model):
                     patience=10)
 
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=logdir, profile_batch=0)
+                    log_dir=pretrained_logdir, profile_batch=0)
 
                 pretrained, model = self.build(hp=kt.HyperParameters())
 
@@ -54,8 +82,7 @@ class Combined_PNN(Model):
                         pre_train,
                         validation_data=pre_val,
                         epochs=epochs,
-                        callbacks=[early_stop, tensorboard]
-                    )
+                        callbacks=[early_stop, tensorboard])
                     pretrained_weights = pretrained.get_weights()
                 else:
                     pretrained.set_weights(pretrained_weights)
@@ -68,11 +95,8 @@ class Combined_PNN(Model):
                 val, test = split(val)
                 train = train.shuffle(2**10)
 
-                logdir = os.path.join(
-                    'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), 'cpnn', f's{subject_index}', f'r{rep_index}']))
-
                 tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=logdir, profile_batch=0)
+                    log_dir=rep_logdir, profile_batch='10,20')
 
                 model.fit(
                     train,
@@ -85,23 +109,19 @@ class Combined_PNN(Model):
                 k_fold.append(result[-1])
 
             average = mean(k_fold)
-            print(f'\nmean accuracy: {average}')
+            tf.print(f'\nmean accuracy: {average}')
             subjects_accuracy.append(average)
+            standard_deviation = stdev(k_fold)
 
-            """ subject_average = tf.summary.create_file_writer(
-                os.path.join(logdir, 'model_average'))
-            with subject_average.as_default():
-                tf.summary.text(f"subject_{subject_index}_average", str(
-                    subjects_accuracy), step=0) """
+            with open(os.path.join(subject_logdir, 'results.txt'), 'w') as f:
+                f.write(
+                    str({'mean': average, 'stdev': standard_deviation, 'k_fold': k_fold}))
 
         total_average = mean(subjects_accuracy)
-
-        """ model_average = tf.summary.create_file_writer(
-            os.path.join(logdir, 'model_average'))
-        with model_average.as_default():
-            tf.summary.text(f"model_average", str(
-                (total_average, subjects_accuracy)), step=1) """
-        # tf.summary.text("Confusion Matrix", cm_image, step=epoch)
+        total_standard_deviation = stdev(subjects_accuracy)
+        with open(os.path.join(self.logdir, 'results.txt'), 'w') as f:
+            f.write(str({'mean': total_average, 'stdev': total_standard_deviation,
+                         'subjects_accuracy': subjects_accuracy}))
 
         return (total_average, subjects_accuracy)
 
@@ -166,3 +186,16 @@ class Combined_PNN(Model):
             metrics=['accuracy'])
 
         return pretrained_model, model
+
+    def _resume(self):
+        subjects = [f.path for f in os.scandir(self.logdir) if f.is_dir()]
+        subject_accuracies = []
+        for subject in subjects:
+            try:
+                with open(os.path.join(subject, 'results.txt'), 'r') as f:
+                    results = literal_eval(f.read())
+                    subject_accuracies.append(results['mean'])
+            except FileNotFoundError:
+                shutil.rmtree(subject)
+                continue
+        return subject_accuracies
