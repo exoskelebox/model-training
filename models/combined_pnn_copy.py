@@ -79,13 +79,18 @@ class Combined_PNN(Model):
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
 
+                x_val, x_test, y_val, y_test = train_test_split(
+                    x_test, y_test, test_size=0.5, stratify=y_test)
+
                 target_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                    x_test, y_test), callbacks=[early_stop, tensorboard])
+                    x_val, y_val), callbacks=[early_stop, tensorboard])
 
                 result.append(target_model.evaluate(
                     x_test, y_test, batch_size))
 
             mean = np.mean(result, axis=0).tolist()
+
+            print('eval_loss: {:.4f} - eval_accuracy: {:.4f}'.format(*mean))
 
             subject_results.append(mean)
 

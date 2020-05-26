@@ -10,7 +10,7 @@ from tensorflow.keras.mixed_precision import experimental as mixed_precision
 import numpy as np
 import pandas as pd
 from utils.iter_utils import fold
-from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
 
 class Dense(Model):
@@ -56,9 +56,13 @@ class Dense(Model):
 
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
+
+                x_val, x_test, y_val, y_test = train_test_split(
+                    x_test, y_test, test_size=0.5, stratify=y_test)
+
                 model = self.build(hp=kt.HyperParameters())
                 model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_test, y_test), callbacks=[early_stop, tensorboard])
+                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, tensorboard])
 
                 result.append(model.evaluate(x_test, y_test, batch_size))
 
