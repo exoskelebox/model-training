@@ -3,29 +3,44 @@ import os
 from .model import Model
 from human_gestures import HumanGestures
 import random
-from statistics import mean
+from statistics import mean, stdev
 import tensorflow as tf
 import kerastuner as kt
 from datetime import datetime
 from utils.data_utils import split
 import tqdm
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
-
+from ast import literal_eval
+import shutil
 
 class PNN(Model):
-    def __init__(self, name='pnn', tunable=True):
+    def __init__(self, name='pnn', tunable=True, resume=None):
         super().__init__(name=name, tunable=tunable)
         policy = mixed_precision.Policy('mixed_float16')
         mixed_precision.set_policy(policy)
-        self.logdir = os.path.join(
-            'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), self.name]))
+        if resume:
+            self.logdir = os.path.join(
+                'logs', resume)
+            self.resumed = True
+        else:
+            self.logdir = os.path.join(
+                'logs', '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S"), self.name]))
+            self.resumed = False
 
     def run_model(self, batch_size, epochs, hp=kt.HyperParameters()):
         subjects_accuracy = []
+        if self.resumed:
+            subjects_accuracy = self._resume()
+
         summary_writer = tf.summary.create_file_writer(
             self.logdir)
+        
+        with open(os.path.join(self.logdir, 'results.txt'), 'w') as f:
+            f.write(str({'mean': 0, 'stdev': 0, 'subjects_accuracy': subjects_accuracy}))
 
         for subject_index, (subject_repetitions, remainder) in enumerate(HumanGestures(batch_size).subject_datasets(flatten_remainder=False), start=1):
+            if subject_index < 1 + len(subjects_accuracy):
+                continue
             subject_logdir = os.path.join(self.logdir, f's{subject_index}')
             subject_summary_writer = tf.summary.create_file_writer(
                 subject_logdir)
@@ -112,12 +127,19 @@ class PNN(Model):
             average = mean(k_fold)
             tf.print('\nmean_accuracy: {:.4f}'.format(average))
             subjects_accuracy.append(average)
+            standard_deviation = stdev(k_fold)
+
+            with open(os.path.join(subject_logdir, 'results.txt'), 'w') as f:
+                f.write(str({'mean': average, 'stdev': standard_deviation, 'k_fold': k_fold}))
 
             """ with subject_summary_writer.as_default():
                 tf.summary.text('sub_accuracy', str(
                     average), step=subject_index) """
 
         total_average = mean(subjects_accuracy)
+        total_standard_deviation = stdev(subjects_accuracy)
+        with open(os.path.join(self.logdir, 'results.txt'), 'w') as f:
+            f.write(str({'mean': total_average, 'stdev': total_standard_deviation, 'subjects_accuracy': subjects_accuracy}))
 
         """ with summary_writer.as_default():
             tf.summary.text('model_accuracy', str(
@@ -188,3 +210,16 @@ class PNN(Model):
             columns.append(model)
 
         return columns
+
+    def _resume(self):
+        subjects = [ f.path for f in os.scandir(self.logdir) if f.is_dir() ]
+        subject_accuracies = []
+        for subject in subjects:
+            try:
+                with open(os.path.join(subject, 'results.txt'), 'r') as f:
+                    results = literal_eval(f.read())
+                    subject_accuracies.append(results['mean'])
+            except FileNotFoundError:
+                shutil.rmtree(subject)
+                continue
+        return subject_accuracies

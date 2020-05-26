@@ -25,9 +25,10 @@ ch.setFormatter(formatter)
 # add the handlers to the logger
 logger.addHandler(fh)
 logger.addHandler(ch)
+ 
 
 
-def run_models(selected_models=[], batch_size=1024, epochs=5):
+def run_models(selected_models=[], batch_size=1024, epochs=5, resume=None):
 
     models_config = {
         'dense': Dense,
@@ -37,7 +38,7 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
     for current_model in selected_models:
 
-        model = models_config[current_model]()
+        model = models_config[current_model](resume=resume)
 
         results = model.run_model(batch_size, epochs)
 
@@ -45,4 +46,4 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
 
 if __name__ == "__main__":
-    run_models(['pnn'], 2**10, 100)
+    run_models(['pnn'], 2**10, 100, resume=None)
