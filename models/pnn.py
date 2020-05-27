@@ -140,10 +140,10 @@ class ProgressiveNeuralNetwork(HyperModel):
                           max_value=10,
                           default=6,
                           step=1)
-        adapter_exponent = exponent // 2
+        adapter_exponent = 4
         dropout = hp.Float('dropout',
                            min_value=0.0,
-                           default=0.2,
+                           default=0.5,
                            max_value=0.5,
                            step=0.1)
 
