@@ -1,36 +1,35 @@
 from __future__ import absolute_import
-import os
-from .model import Model
-from human_gestures import HumanGestures
-import random
+from tensorflow.keras import callbacks, mixed_precision, models, optimizers, utils
 import tensorflow as tf
-import kerastuner as kt
-from datetime import datetime
-import tqdm
-from tensorflow.keras.mixed_precision import experimental as mixed_precision
 import pandas as pd
+import os
 from utils.iter_utils import fold
-from sklearn.model_selection import LeaveOneGroupOut, train_test_split
+from kerastuner import HyperParameters, HyperModel
 import numpy as np
+from sklearn.model_selection._split import LeaveOneGroupOut, train_test_split
+import tqdm
+from tensorflow.python.keras import layers
+from _datetime import datetime
 
 
-class PNN(Model):
-    def __init__(self, name=datetime.now().strftime("%Y%m%d-%H%M%S"), tunable=True):
+class ProgressiveNeuralNetwork(HyperModel):
+    def __init__(self, name='pnn', tunable=True):
         super().__init__(name=name, tunable=tunable)
-        policy = mixed_precision.Policy('mixed_float16')
-        mixed_precision.set_policy(policy)
+        policy = mixed_precision.experimental.Policy('mixed_float16')
+        mixed_precision.experimental.set_policy(policy)
+        self.built = False
 
     def run_model(self, batch_size, epochs):
         fname = 'hgest.hdf'
         origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
-        path: str = tf.keras.utils.get_file(
+        path: str = utils.get_file(
             fname, origin)
         key = 'normalized'
         df = pd.read_hdf(path, key)
 
         subject_results = []
 
-        early_stop = tf.keras.callbacks.EarlyStopping(
+        early_stop = callbacks.EarlyStopping(
             monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
             patience=10)
 
@@ -38,30 +37,44 @@ class PNN(Model):
         sensor_cols = [
             col for col in df.columns if col.startswith('sensor')]
 
-        logdir = os.path.join('logs', self.name)
+        col_weights = []
+
+        logdir = os.path.join(
+            'logs', self.name, datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+        file_writer = tf.summary.create_file_writer(logdir)
+        file_writer.set_as_default()
 
         for subject_index, (target_subject_id, source_subject_ids) in enumerate(fold(subject_ids), start=1):
             tf.print('Subject {}/{}'.format(subject_index, len(subject_ids)))
             result = []
 
-            columns = self.build(hp=kt.HyperParameters(),
+            columns = self.build(hp=HyperParameters(),
                                  num_columns=len(subject_ids))
 
             for column_index, subject_id in enumerate(source_subject_ids):
                 tf.print('Column {}/{}'.format(column_index +
                                                1, len(source_subject_ids)))
-                subject_df = df[df.subject_id == subject_id]
 
-                x = subject_df[sensor_cols].to_numpy()
-                y = subject_df.label.to_numpy()
+                model: models.Model = columns[column_index]
 
-                x_train, x_val, y_train, y_val = train_test_split(
-                    x, y, stratify=y)
+                if column_index < subject_index - 2:
+                    model.set_weights(col_weights[column_index])
+                else:
+                    subject_df = df[df.subject_id == subject_id]
+                    val_rep = subject_df.repetition.max()
 
-                model: tf.keras.Model = columns[column_index]
+                    train_df = subject_df[subject_df.repetition != val_rep]
+                    val_df = subject_df[subject_df.repetition == val_rep]
 
-                model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                    x_val, y_val), callbacks=[early_stop])
+                    x_train = train_df[sensor_cols].to_numpy()
+                    y_train = train_df.label.to_numpy()
+
+                    x_val = val_df[sensor_cols].to_numpy()
+                    y_val = val_df.label.to_numpy()
+
+                    model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                        x_val, y_val), callbacks=[early_stop])
 
                 for layer in model.layers[1:]:
                     layer.trainable = False
@@ -78,37 +91,56 @@ class PNN(Model):
             for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
                 model.set_weights(base_weights)
 
-                tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=os.path.join(logdir, str(subject_index), str(rep_index)), profile_batch=0)
-
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
 
                 x_val, x_test, y_val, y_test = train_test_split(
                     x_test, y_test, test_size=0.5, stratify=y_test)
 
+                checkpoint = callbacks.ModelCheckpoint(os.path.join(logdir, str(
+                    subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
+
                 model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, tensorboard])
+                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, checkpoint])
 
                 result.append(model.evaluate(x_test, y_test, batch_size))
 
             mean = np.mean(result, axis=0).tolist()
+
+            subject_loss, subject_accuracy = mean
+
+            tf.summary.scalar('subject_loss', subject_loss,
+                              step=(subject_index - 1))
+            tf.summary.scalar('subject_accuracy', subject_accuracy,
+                              step=(subject_index - 1))
+
             subject_results.append(mean)
 
+            model_loss, model_accuracy = np.mean(
+                subject_results, axis=0).tolist()
+
+            tf.summary.scalar('mean_loss', model_loss,
+                              step=(subject_index - 1))
+            tf.summary.scalar('mean_accuracy', model_accuracy,
+                              step=(subject_index - 1))
+
+            file_writer.flush()
+
+            col_weights = [col.get_weights() for col in columns]
+
         mean = np.mean(subject_results, axis=0).tolist()
+
+        file_writer.close()
+
         return (mean, subject_results)
 
-    def build(self, hp=kt.HyperParameters(), num_columns=20):
+    def build(self, hp, num_columns=20):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
                           default=6,
                           step=1)
-        adapter_exponent = hp.Int('adapter_exponent',
-                                  min_value=2,
-                                  max_value=6,
-                                  default=4,
-                                  step=1)
+        adapter_exponent = exponent // 2
         dropout = hp.Float('dropout',
                            min_value=0.0,
                            default=0.2,
@@ -118,46 +150,48 @@ class PNN(Model):
         columns = []
 
         # Input layer
-        inputs = tf.keras.layers.Input((15,))
+        inputs = layers.Input((15,))
 
         for i in tqdm.trange(num_columns, desc='Building columns'):
 
             # Hidden 1
-            x = tf.keras.layers.Dense(
+            x = layers.Dense(
                 2**exponent, activation='relu', name='dense_1_{}'.format(i))(inputs)
-            x = tf.keras.layers.Dropout(0.2, name='dropout_1_{}'.format(i))(x)
+            x = layers.Dropout(0.2, name='dropout_1_{}'.format(i))(x)
 
-            ada_x = [tf.keras.layers.Dense(2**adapter_exponent, activation='relu', name='adapter_1_{}_{}'.format(
+            ada_x = [layers.Dense(2**adapter_exponent, activation='relu', name='adapter_1_{}_{}'.format(
                 i, j))(columns[j].get_layer('dense_1_{}'.format(j)).output) for j in range(i)]
 
-            x = tf.keras.layers.concatenate(
+            x = layers.concatenate(
                 [x, *ada_x], name='concat_1_{}'.format(i)) if ada_x else x
 
             # Hidden 2
-            x = tf.keras.layers.Dense(
+            x = layers.Dense(
                 2**exponent, activation='relu', name='dense_2_{}'.format(i))(x)
-            x = tf.keras.layers.Dropout(0.2, name='dropout_2_{}'.format(i))(x)
+            x = layers.Dropout(0.2, name='dropout_2_{}'.format(i))(x)
 
-            ada_x = [tf.keras.layers.Dense(2**adapter_exponent, activation='relu', name='adapter_2_{}_{}'.format(
+            ada_x = [layers.Dense(2**adapter_exponent, activation='relu', name='adapter_2_{}_{}'.format(
                 i, j))(columns[j].get_layer('dense_2_{}'.format(j)).output) for j in range(i)]
 
-            x = tf.keras.layers.concatenate(
+            x = layers.concatenate(
                 [x, *ada_x], name='concat_2_{}'.format(i)) if ada_x else x
 
             # Output
-            outputs = tf.keras.layers.Dense(
+            outputs = layers.Dense(
                 18, activation='softmax', name='output_{}'.format(i), dtype='float32')(x)
 
-            model = tf.keras.models.Model(
+            model = models.Model(
                 inputs=inputs, outputs=outputs)
 
             model.compile(
-                optimizer=tf.keras.optimizers.Adam(
-                    hp.Choice('learning_rate',
-                              values=[1e-2, 1e-3, 1e-4], default=1e-3)),
+                optimizer='adam',
                 loss='sparse_categorical_crossentropy',
                 metrics=['accuracy'])
 
             columns.append(model)
+
+        with tf.summary.record_if(not self.built):
+            tf.summary.text('hyperparameters', str(hp.values), step=0)
+            self.built = True
 
         return columns

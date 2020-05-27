@@ -2,6 +2,9 @@ from __future__ import absolute_import
 import tensorflow as tf
 import time
 from tqdm import tqdm
+import numpy as np
+from matplotlib import pyplot as plt
+import itertools
 
 
 @tf.function
@@ -125,3 +128,48 @@ def benchmark(dataset):
             tmp += 1
         sample_count = tmp
     tf.print("Execution time:", time.perf_counter() - start_time)
+
+
+def confusion_matrix(model, test_data, class_names=None):
+    """
+    Returns a matplotlib figure containing the plotted confusion matrix.
+    """
+
+    # Use the model to predict the values from the validation dataset.
+    test_predictions_raw = model.predict(test_data)
+    test_predictions = np.argmax(test_predictions_raw, axis=1)
+
+    test_labels = []
+    gestures = {}
+
+    # Calculate the confusion matrix.
+    cm = tf.math.confusion_matrix(test_labels, test_predictions).numpy()
+
+    figure = plt.figure(figsize=(8, 8))
+    plt.title("Confusion matrix")
+    tick_marks = np.arange(len(class_names))
+
+    # Rotate the tick labels and set their alignment
+    plt.xticks(tick_marks, class_names, rotation=45,
+               ha="right", rotation_mode="anchor")
+    plt.yticks(tick_marks, class_names, rotation=45,
+               ha="right", rotation_mode="anchor")
+
+    # Normalize the confusion matrix
+    cm = np.around(cm.astype('float') / cm.sum(axis=1)
+                   [:, np.newaxis], decimals=2)
+
+    # Create colorbar
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.YlOrRd)
+    plt.colorbar()
+
+    # Use white text if squares are dark; otherwise black.
+    threshold = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        color = "white" if cm[i, j] > threshold else "black"
+        plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
+
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.tight_layout()
+    return figure

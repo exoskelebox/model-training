@@ -1,80 +1,76 @@
 from __future__ import absolute_import
-import os
-from .model import Model
-from human_gestures import HumanGestures
-import random
-from statistics import mean
+from tensorflow.keras import callbacks, layers, mixed_precision, models, utils
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-import kerastuner as kt
-from datetime import datetime
-from callbacks import ConfusionMatrix
-import time
-from utils.data_utils import split, exclude
-from tensorflow.keras.mixed_precision import experimental as mixed_precision
 import pandas as pd
-from sklearn.model_selection import LeaveOneGroupOut, train_test_split
+import os
+from sklearn.model_selection._split import LeaveOneGroupOut, train_test_split
 import numpy as np
+from kerastuner import HyperParameters, HyperModel
+from _datetime import datetime
 
 
-class Combined_PNN(Model):
-    def __init__(self, name=datetime.now().strftime("%Y%m%d-%H%M%S"), tunable=True):
+class CombinedProgressiveNeuralNetwork(HyperModel):
+    def __init__(self, name='cpnn', tunable=True):
         super().__init__(name=name, tunable=tunable)
-        policy = mixed_precision.Policy('mixed_float16')
-        mixed_precision.set_policy(policy)
+        policy = mixed_precision.experimental.Policy('mixed_float16')
+        mixed_precision.experimental.set_policy(policy)
+        self.built = False
 
-    def run_model(self, batch_size, epochs, skip=0):
+    def run_model(self, batch_size, epochs):
         fname = 'hgest.hdf'
         origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
-        path: str = tf.keras.utils.get_file(
+        path: str = utils.get_file(
             fname, origin)
         key = 'normalized'
         df = pd.read_hdf(path, key)
 
         subject_results = []
 
-        early_stop = tf.keras.callbacks.EarlyStopping(
+        early_stop = callbacks.EarlyStopping(
             monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
             patience=10)
 
         sensor_cols = [
             col for col in df.columns if col.startswith('sensor')]
 
-        logdir = os.path.join('logs', self.name)
+        logdir = os.path.join(
+            'logs', self.name, datetime.now().strftime("%Y%m%d-%H%M%S"))
 
-        subject_ids = df.subject_id.to_numpy()
-        repetitions = df.repetition.to_numpy()
-        x = df[sensor_cols].to_numpy()
-        y = df.label.to_numpy()
+        file_writer = tf.summary.create_file_writer(logdir)
+        file_writer.set_as_default()
 
-        logo = LeaveOneGroupOut().split(x, y, groups=subject_ids)
-        [logo.next() for _ in range(skip)]
+        subject_ids = df.subject_id.unique()
 
-        for subject_index, (source_index, target_index) in enumerate(logo, start=(skip + 1)):
-            print('Subject {}/{}'.format(subject_index, len(np.unique(subject_ids))))
-            x_source, y_source = x[source_index], y[source_index]
-
-            x_train, x_test, y_train, y_test = train_test_split(
-                x_source, y_source, stratify=y_source)
-
+        for subject_index, subject_id in enumerate(subject_ids, start=1):
+            tf.print('Subject {}/{}'.format(subject_index, len(subject_ids)))
             result = []
 
-            source_model, target_model = self.build(hp=kt.HyperParameters())
+            source_df = df[df.subject_id != subject_id]
+            val_rep = source_df.repetition.max()
+
+            train_df = source_df[source_df.repetition != val_rep]
+            val_df = source_df[source_df.repetition == val_rep]
+
+            x_train = train_df[sensor_cols].to_numpy()
+            y_train = train_df.label.to_numpy()
+
+            x_val = val_df[sensor_cols].to_numpy()
+            y_val = val_df.label.to_numpy()
+
+            source_model, target_model = self.build(hp=HyperParameters())
 
             source_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                x_test, y_test), callbacks=[early_stop])
+                x_val, y_val), callbacks=[early_stop])
 
             target_weights = target_model.get_weights()
 
-            x_target, y_target = x[target_index], y[target_index]
-            repetitions_target = repetitions[target_index]
+            target_df = df[df.subject_id == subject_id]
+            repetitions = target_df.repetition.to_numpy()
+            x = target_df[sensor_cols].to_numpy()
+            y = target_df.label.to_numpy()
 
-            for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x_target, y_target, groups=repetitions_target)):
+            for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
                 target_model.set_weights(target_weights)
-
-                tensorboard = tf.keras.callbacks.TensorBoard(
-                    log_dir=os.path.join(logdir, str(subject_index), str(rep_index)), profile_batch=0)
 
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
@@ -82,23 +78,43 @@ class Combined_PNN(Model):
                 x_val, x_test, y_val, y_test = train_test_split(
                     x_test, y_test, test_size=0.5, stratify=y_test)
 
+                checkpoint = callbacks.ModelCheckpoint(os.path.join(logdir, str(
+                    subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
+
                 target_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                    x_val, y_val), callbacks=[early_stop, tensorboard])
+                    x_val, y_val), callbacks=[early_stop, checkpoint])
 
                 result.append(target_model.evaluate(
                     x_test, y_test, batch_size))
 
             mean = np.mean(result, axis=0).tolist()
 
-            print('eval_loss: {:.4f} - eval_accuracy: {:.4f}'.format(*mean))
+            subject_loss, subject_accuracy = mean
+
+            tf.summary.scalar('subject_loss', subject_loss,
+                              step=(subject_index - 1))
+            tf.summary.scalar('subject_accuracy', subject_accuracy,
+                              step=(subject_index - 1))
 
             subject_results.append(mean)
 
+            model_loss, model_accuracy = np.mean(
+                subject_results, axis=0).tolist()
+
+            tf.summary.scalar('mean_loss', model_loss,
+                              step=(subject_index - 1))
+            tf.summary.scalar('mean_accuracy', model_accuracy,
+                              step=(subject_index - 1))
+
+            file_writer.flush()
+
         mean = np.mean(subject_results, axis=0).tolist()
+
+        file_writer.close()
 
         return (mean, subject_results)
 
-    def build(self, hp=kt.HyperParameters()):
+    def build(self, hp):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
@@ -115,7 +131,7 @@ class Combined_PNN(Model):
                            max_value=0.5,
                            step=0.1)
 
-        inputs = tf.keras.layers.Input((15,))
+        inputs = layers.Input((15,))
 
         # 1st hidden layer
         x = layers.Dense(2**exponent, activation='relu')(inputs)
@@ -141,21 +157,25 @@ class Combined_PNN(Model):
         y = layers.Dense(18, activation='softmax',
                          dtype='float32')(y)
 
-        pretrained_model = keras.models.Model(
+        pretrained_model = models.Model(
             inputs=inputs, outputs=y)
 
         pretrained_model.compile(
-            optimizer=tf.keras.optimizers.Adam(1e-2),
+            optimizer='adam',
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy'])
 
         x = layers.Dense(18, activation='softmax', dtype='float32')(x)
 
-        model = keras.models.Model(
+        model = models.Model(
             inputs=inputs, outputs=x)
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(1e-2),
+            optimizer='adam',
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy'])
+
+        with tf.summary.record_if(not self.built):
+            tf.summary.text('hyperparameters', str(hp.values), step=0)
+            self.built = True
 
         return pretrained_model, model

@@ -1,7 +1,7 @@
 import os
 import logging
 import tensorflow as tf
-from models import Dense, PNN, Combined_PNN
+from models import Dense, ProgressiveNeuralNetwork, CombinedProgressiveNeuralNetwork
 
 
 # create results logger
@@ -31,8 +31,8 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
     models_config = {
         'dense': Dense,
-        'pnn': PNN,
-        'cpnn': Combined_PNN,
+        'pnn': ProgressiveNeuralNetwork,
+        'cpnn': CombinedProgressiveNeuralNetwork,
     }
 
     for current_model in selected_models:
