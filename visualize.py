@@ -27,18 +27,16 @@ def test_data():
     fname = 'hgest.hdf'
     origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
     path: str = utils.get_file(
-        fname, origin)
+        fname, origin, )
     key = 'normalized'
     df = pd.read_hdf(path, key)
-    
-
 
     # Create target Directory if don't exist
     def check_dir(path):
         if not os.path.exists(path):
             os.mkdir(path)
 
-    figuredir = os.path.join('figures', 'data_distributions')
+    figuredir = os.path.join('figures', 'data_boxplots')
     check_dir(figuredir)
     
     subject_groups = df.groupby("subject_id", as_index=False)
@@ -65,11 +63,11 @@ def test_data():
             gesture_dir = os.path.join(subject_dir, f'{gesture}_distribution.pdf')
             fig = plot(gesture_data, id, gesture)
             fig.savefig(gesture_dir)
-            fig.close()
+            plt.close(fig)
 
 
 
-def plot(df, subject, gesture):
+def barplot(df, subject, gesture):
     """
     Returns a matplotlib figure containing the plotted data.
     """
@@ -115,6 +113,51 @@ def plot(df, subject, gesture):
     return fig
 
 
+def boxplot(df, subject, gesture):
+    """
+    Returns a matplotlib figure containing the plotted data.
+    """
+
+
+    labels = [f'sensor{i}' for i in range(1, 16)]
+    reps = [[df[df.repetition == i][l].to_numpy() for l in labels] for i in range(1,6)]
+    
+
+    x = np.arange(len(labels))  # the label locations
+    width = 0.15  # the width of the bars
+    rects = []
+    fig, ax = plt.subplots()
+    for i, rep in enumerate(reps, start=1):
+        rects.append(ax.boxplot(x - ((3-i)*width), reps[i-1], width))
+
+    # Add some text for labels, title and custom x-axis tick labels, etc.
+    ax.set_ylabel('Repetitions')
+    ax.set_title('Average sensor values by repetition')
+    #ax.set_xticks(x)
+    #ax.set_xticklabels(labels)
+    # Rotate the tick labels and set their alignment
+    plt.xticks(x, labels, rotation=45,
+               ha="right", rotation_mode="anchor")
+    ax.legend()
+
+    def autolabel(rects):
+        """Attach a text label above each bar in *rects*, displaying its height."""
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate('{}'.format(height),
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+
+
+    #for r in rects:
+        #autolabel(r)
+
+    fig.tight_layout()
+    #plt.show()
+    return fig
+
+
 if __name__ == "__main__":
-    setup_pandas()
     test_data()
