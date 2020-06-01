@@ -26,8 +26,9 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
 
         subject_results = []
 
-        early_stop = callbacks.EarlyStopping(
-            monitor='val_loss', restore_best_weights=True, patience=4)
+        src_early_stop = callbacks.EarlyStopping()
+        tar_early_stop = callbacks.EarlyStopping(
+            'val_accuracy', restore_best_weights=True, patience=10)
 
         sensor_cols = [
             col for col in df.columns if col.startswith('sensor')]
@@ -44,30 +45,31 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
             tf.print('Subject {}/{}'.format(subject_index, len(subject_ids)))
             result = []
 
-            source_df = df[df.subject_id != subject_id]
+            src_df = df[df.subject_id != subject_id]
 
-            x = source_df[sensor_cols].to_numpy()
-            y = source_df.label.to_numpy()
+            x = src_df[sensor_cols].to_numpy()
+            y = src_df.label.to_numpy()
 
-            x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y)
+            x_train, x_test, y_train, y_test = train_test_split(
+                x, y, stratify=y)
 
-            source_model, target_model = self.build(hp=HyperParameters())
+            src_model, tar_model = self.build(hp=HyperParameters())
 
-            source_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                x_test, y_test), callbacks=[early_stop])
+            src_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                x_test, y_test), callbacks=[src_early_stop])
 
-            for layer in source_model.layers:
+            for layer in src_model.layers:
                 layer.trainable = False
 
-            target_weights = target_model.get_weights()
+            target_weights = tar_model.get_weights()
 
-            target_df = df[df.subject_id == subject_id]
-            repetitions = target_df.repetition.to_numpy()
-            x = target_df[sensor_cols].to_numpy()
-            y = target_df.label.to_numpy()
+            tar_df = df[df.subject_id == subject_id]
+            repetitions = tar_df.repetition.to_numpy()
+            x = tar_df[sensor_cols].to_numpy()
+            y = tar_df.label.to_numpy()
 
             for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
-                target_model.set_weights(target_weights)
+                tar_model.set_weights(target_weights)
 
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
@@ -75,10 +77,10 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
                 checkpoint = callbacks.ModelCheckpoint(os.path.join(logdir, str(
                     subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
-                target_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                    x_test, y_test), callbacks=[early_stop, checkpoint])
+                tar_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                    x_test, y_test), callbacks=[tar_early_stop, checkpoint])
 
-                result.append(target_model.evaluate(
+                result.append(tar_model.evaluate(
                     x_test, y_test, batch_size))
 
             mean = np.mean(result, axis=0).tolist()
@@ -112,7 +114,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=7,
+                          default=8,
                           step=1)
         adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,
@@ -137,7 +139,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         x = layers.concatenate([x, a])
         y = layers.Dropout(dropout)(y)
 
-        # 2nd hidden layer
+        """ # 2nd hidden layer
         x = layers.Dense(2**exponent, activation='relu')(x)
         y = layers.Dense(2**exponent, activation='relu')(y)
         a = layers.Dense(2**adapter_exponent, activation='relu')(y)
@@ -145,7 +147,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         # 2nd dropout layer
         x = layers.Dropout(dropout)(x)
         x = layers.concatenate([x, a])
-        y = layers.Dropout(dropout)(y)
+        y = layers.Dropout(dropout)(y) """
 
         # Output layer
         y = layers.Dense(18, activation='softmax',
