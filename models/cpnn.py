@@ -27,8 +27,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         subject_results = []
 
         early_stop = callbacks.EarlyStopping(
-            monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
-            patience=10)
+            monitor='val_loss', restore_best_weights=True, patience=4)
 
         sensor_cols = [
             col for col in df.columns if col.startswith('sensor')]
@@ -46,21 +45,19 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
             result = []
 
             source_df = df[df.subject_id != subject_id]
-            val_rep = source_df.repetition.max()
 
-            train_df = source_df[source_df.repetition != val_rep]
-            val_df = source_df[source_df.repetition == val_rep]
+            x = source_df[sensor_cols].to_numpy()
+            y = source_df.label.to_numpy()
 
-            x_train = train_df[sensor_cols].to_numpy()
-            y_train = train_df.label.to_numpy()
-
-            x_val = val_df[sensor_cols].to_numpy()
-            y_val = val_df.label.to_numpy()
+            x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y)
 
             source_model, target_model = self.build(hp=HyperParameters())
 
             source_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                x_val, y_val), callbacks=[early_stop])
+                x_test, y_test), callbacks=[early_stop])
+
+            for layer in source_model.layers:
+                layer.trainable = False
 
             target_weights = target_model.get_weights()
 
@@ -75,14 +72,11 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
 
-                x_val, x_test, y_val, y_test = train_test_split(
-                    x_test, y_test, test_size=0.5, stratify=y_test)
-
                 checkpoint = callbacks.ModelCheckpoint(os.path.join(logdir, str(
                     subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
                 target_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                    x_val, y_val), callbacks=[early_stop, checkpoint])
+                    x_test, y_test), callbacks=[early_stop, checkpoint])
 
                 result.append(target_model.evaluate(
                     x_test, y_test, batch_size))
@@ -118,7 +112,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=6,
+                          default=7,
                           step=1)
         adapter_exponent = hp.Int('adapter_exponent',
                                   min_value=2,

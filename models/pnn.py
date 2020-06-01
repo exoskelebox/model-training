@@ -30,8 +30,7 @@ class ProgressiveNeuralNetwork(HyperModel):
         subject_results = []
 
         early_stop = callbacks.EarlyStopping(
-            monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
-            patience=10)
+            monitor='val_loss', restore_best_weights=True, patience=4)
 
         subject_ids = df.subject_id.unique()
         sensor_cols = [
@@ -62,21 +61,14 @@ class ProgressiveNeuralNetwork(HyperModel):
                     model.set_weights(col_weights[column_index])
                 else:
                     subject_df = df[df.subject_id == subject_id]
-                    val_rep = subject_df.repetition.max()
+                    x = subject_df[sensor_cols].to_numpy()
+                    y = subject_df.label.to_numpy()
 
-                    train_df = subject_df[subject_df.repetition != val_rep]
-                    val_df = subject_df[subject_df.repetition == val_rep]
+                    x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y)
 
-                    x_train = train_df[sensor_cols].to_numpy()
-                    y_train = train_df.label.to_numpy()
+                    model.fit(x_train, y_train, batch_size, epochs, validation_data=(x_test, y_test), callbacks=[early_stop])
 
-                    x_val = val_df[sensor_cols].to_numpy()
-                    y_val = val_df.label.to_numpy()
-
-                    model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                        x_val, y_val), callbacks=[early_stop])
-
-                for layer in model.layers[1:]:
+                for layer in model.layers:
                     layer.trainable = False
 
             model = columns[-1]
@@ -94,14 +86,11 @@ class ProgressiveNeuralNetwork(HyperModel):
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
 
-                x_val, x_test, y_val, y_test = train_test_split(
-                    x_test, y_test, test_size=0.5, stratify=y_test)
-
                 checkpoint = callbacks.ModelCheckpoint(os.path.join(logdir, str(
                     subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
                 model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, checkpoint])
+                          epochs, validation_data=(x_test, y_test), callbacks=[early_stop, checkpoint])
 
                 result.append(model.evaluate(x_test, y_test, batch_size))
 
@@ -143,7 +132,7 @@ class ProgressiveNeuralNetwork(HyperModel):
         adapter_exponent = 4
         dropout = hp.Float('dropout',
                            min_value=0.0,
-                           default=0.5,
+                           default=0.2,
                            max_value=0.5,
                            step=0.1)
 

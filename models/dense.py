@@ -27,8 +27,7 @@ class Dense(HyperModel):
         subject_results = []
 
         early_stop = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', min_delta=0.0001, restore_best_weights=True,
-            patience=10)
+            monitor='val_loss', restore_best_weights=True, patience=4)
 
         subject_ids = df.subject_id.unique()
         sensor_cols = [
@@ -55,15 +54,12 @@ class Dense(HyperModel):
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
 
-                x_val, x_test, y_val, y_test = train_test_split(
-                    x_test, y_test, test_size=0.5, stratify=y_test)
-
                 checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(logdir, str(
                     subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
                 model = self.build(hp=HyperParameters())
                 model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, checkpoint])
+                          epochs, validation_data=(x_test, y_test), callbacks=[early_stop, checkpoint])
 
                 result.append(model.evaluate(x_test, y_test, batch_size))
 
