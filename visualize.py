@@ -61,7 +61,7 @@ def test_data():
             print(gesture_data.groupby('repetition')['repetition'].count().head(20))
 
             gesture_dir = os.path.join(subject_dir, f'{gesture}_distribution.pdf')
-            fig = plot(gesture_data, id, gesture)
+            fig = boxplot(gesture_data, id, gesture)
             fig.savefig(gesture_dir)
             plt.close(fig)
 
@@ -128,7 +128,7 @@ def boxplot(df, subject, gesture):
     rects = []
     fig, ax = plt.subplots()
     for i, rep in enumerate(reps, start=1):
-        rects.append(ax.boxplot(x - ((3-i)*width), reps[i-1], width))
+        rects.append(ax.boxplot(x=reps[i-1], positions=x - ((3-i)*width), widths=width))
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel('Repetitions')
@@ -139,20 +139,6 @@ def boxplot(df, subject, gesture):
     plt.xticks(x, labels, rotation=45,
                ha="right", rotation_mode="anchor")
     ax.legend()
-
-    def autolabel(rects):
-        """Attach a text label above each bar in *rects*, displaying its height."""
-        for rect in rects:
-            height = rect.get_height()
-            ax.annotate('{}'.format(height),
-                        xy=(rect.get_x() + rect.get_width() / 2, height),
-                        xytext=(0, 3),  # 3 points vertical offset
-                        textcoords="offset points",
-                        ha='center', va='bottom')
-
-
-    #for r in rects:
-        #autolabel(r)
 
     fig.tight_layout()
     #plt.show()
