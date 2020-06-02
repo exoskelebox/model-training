@@ -27,10 +27,8 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
 
         subject_results = []
 
-        src_early_stop = callbacks.EarlyStopping(
-            restore_best_weights=True, patience=2)
-        tar_early_stop = callbacks.EarlyStopping(
-            restore_best_weights=True, patience=10)
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            min_delta=0.001, patience=5, restore_best_weights=True)
 
         sensor_cols = [
             col for col in df.columns if col.startswith('sensor')]
@@ -58,7 +56,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
             src_model, tar_model = self.build(hp=HyperParameters())
 
             src_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                x_val, y_val), callbacks=[src_early_stop])
+                x_val, y_val), callbacks=[early_stop])
 
             tar_df = df[df.subject_id == subject_id]
             tar_test_df = tar_df[tar_df.repetition == tar_df.repetition.max()]
@@ -74,7 +72,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
                 x, y, stratify=y)
 
             tar_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                x_val, y_val), callbacks=[tar_early_stop, checkpoint])
+                x_val, y_val), callbacks=[early_stop, checkpoint])
 
             x_test = tar_test_df[sensor_cols].to_numpy()
             y_test = tar_test_df.label.to_numpy()

@@ -30,10 +30,8 @@ class ProgressiveNeuralNetwork(HyperModel):
 
         subject_results = []
 
-        src_early_stop = callbacks.EarlyStopping(
-            restore_best_weights=True, patience=2)
-        tar_early_stop = callbacks.EarlyStopping(
-            restore_best_weights=True, patience=10)
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            min_delta=0.001, patience=5, restore_best_weights=True)
 
         subject_ids = df.subject_id.unique()
         sensor_cols = [
@@ -70,7 +68,7 @@ class ProgressiveNeuralNetwork(HyperModel):
                         x, y, stratify=y)
 
                     model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                        x_val, y_val), callbacks=[src_early_stop])
+                        x_val, y_val), callbacks=[early_stop])
 
                 for layer in model.layers:
                     layer.trainable = False
@@ -93,7 +91,7 @@ class ProgressiveNeuralNetwork(HyperModel):
                 x, y, stratify=y)
 
             model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                x_val, y_val), callbacks=[tar_early_stop, checkpoint])
+                x_val, y_val), callbacks=[early_stop, checkpoint])
 
             x_test = subject_test_df[sensor_cols].to_numpy()
             y_test = subject_test_df.label.to_numpy()

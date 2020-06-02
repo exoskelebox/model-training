@@ -34,7 +34,7 @@ class Dense(HyperModel):
         subject_results = []
 
         early_stop = tf.keras.callbacks.EarlyStopping(
-            restore_best_weights=True, patience=10)
+            min_delta=0.001, patience=5, restore_best_weights=True)
 
         logdir = os.path.join(
             'logs', self.name, datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -95,7 +95,7 @@ class Dense(HyperModel):
     def build(self, hp):
         dropout = hp.Float('dropout',
                            min_value=0.2,
-                           default=0.5,
+                           default=0.2,
                            max_value=0.5,
                            step=0.1)
 
@@ -103,7 +103,13 @@ class Dense(HyperModel):
             tf.keras.layers.Dense(2**hp.Int('exponent_1',
                                             min_value=6,
                                             max_value=8,
-                                            default=7,
+                                            default=6,
+                                            step=1), activation='relu'),
+            tf.keras.layers.Dropout(dropout),
+            tf.keras.layers.Dense(2**hp.Int('exponent_2',
+                                            min_value=6,
+                                            max_value=8,
+                                            default=6,
                                             step=1), activation='relu'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(18, activation='softmax', dtype='float32')
