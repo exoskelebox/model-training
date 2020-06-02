@@ -22,7 +22,7 @@ def build_model(hp: HyperParameters):
             2**hp.Int('exponent_{}'.format(i), 5, 8, default=6), 'relu')(x)
         x = tf.keras.layers.Dropout(dropout)(x)
 
-    x = tf.keras.layers.Dense(18, activation='softmax')(x)
+    x = tf.keras.layers.Dense(18, activation='softmax', dtype='float32')(x)
     model = tf.keras.Model(inputs=inputs, outputs=x)
     model.compile(
         'adam',
