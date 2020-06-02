@@ -28,7 +28,7 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         subject_results = []
 
         src_early_stop = callbacks.EarlyStopping(
-            'val_accuracy', restore_best_weights=True, patience=2)
+            restore_best_weights=True, patience=2)
         tar_early_stop = callbacks.EarlyStopping(
             'val_accuracy', restore_best_weights=True, patience=10)
 
