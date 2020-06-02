@@ -12,8 +12,9 @@ import numpy as np
 class Dense(HyperModel):
     def __init__(self, name='dense', tunable=True):
         super().__init__(name=name, tunable=tunable)
-        policy = mixed_precision.experimental.Policy('mixed_float16')
-        mixed_precision.experimental.set_policy(policy)
+        if tf.config.list_physical_devices('GPU'):
+            policy = mixed_precision.experimental.Policy('mixed_float16')
+            mixed_precision.experimental.set_policy(policy)
         self.built = False
 
     def run_model(self, batch_size, epochs):
@@ -26,12 +27,6 @@ class Dense(HyperModel):
 
         subject_ids = df.subject_id.unique()
         sensor_cols = [col for col in df.columns if col.startswith('sensor')]
-
-        # Split the dataset into a train and test dataset
-        test_df = df[df.repetition == df.repetition.max()]
-        train_df = df.drop(test_df.index)
-
-        del df
 
         subject_results = []
 
@@ -46,14 +41,13 @@ class Dense(HyperModel):
 
         for subject_index, subject_id in enumerate(subject_ids, start=1):
             print('Subject {}/{}'.format(subject_index, len(subject_ids)))
-            test_subject_df = test_df[test_df.subject_id == subject_id]
-            train_subject_df = train_df[train_df.subject_id == subject_id]
+            subject_df = df[df.subject_id == subject_id]
 
             result = []
 
-            train_repetitions = train_subject_df.repetition.to_numpy()
-            x = train_subject_df[sensor_cols].to_numpy()
-            y = train_subject_df.label.to_numpy()
+            train_repetitions = subject_df.repetition.to_numpy()
+            x = subject_df[sensor_cols].to_numpy()
+            y = subject_df.label.to_numpy()
 
             for rep_index, (train_index, val_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=train_repetitions), start=1):
 
@@ -67,10 +61,7 @@ class Dense(HyperModel):
                 model.fit(x_train, y_train, batch_size,
                           epochs, validation_data=(x_val, y_val), callbacks=[early_stop, checkpoint])
 
-                result.append(model.evaluate(
-                    test_subject_df[sensor_cols].to_numpy(),
-                    test_subject_df.label.to_numpy(),
-                    batch_size))
+                result.append(model.evaluate(x_val, y_val, batch_size))
 
             mean = np.mean(result, axis=0).tolist()
 
@@ -113,7 +104,7 @@ class Dense(HyperModel):
                                             default=7,
                                             step=1), activation='relu'),
             tf.keras.layers.Dropout(dropout),
-            tf.keras.layers.Dense(18, activation='softmax', dtype='float32')
+            tf.keras.layers.Dense(18, activation='softmax')
         ])
 
         """
