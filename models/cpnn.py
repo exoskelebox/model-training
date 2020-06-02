@@ -12,8 +12,9 @@ from _datetime import datetime
 class CombinedProgressiveNeuralNetwork(HyperModel):
     def __init__(self, name='cpnn', tunable=True):
         super().__init__(name=name, tunable=tunable)
-        policy = mixed_precision.experimental.Policy('mixed_float16')
-        mixed_precision.experimental.set_policy(policy)
+        if tf.config.list_physical_devices('GPU'):
+            policy = mixed_precision.experimental.Policy('mixed_float16')
+            mixed_precision.experimental.set_policy(policy)
         self.built = False
 
     def run_model(self, batch_size, epochs):

@@ -10,6 +10,7 @@ from sklearn.model_selection._split import train_test_split
 from sklearn import metrics, model_selection
 from sklearn.model_selection import LeaveOneGroupOut
 import numpy as np
+from tensorflow.keras import mixed_precision
 
 
 def build_model(hp: HyperParameters):
@@ -77,6 +78,10 @@ class MyTuner(kt.Tuner):
 
 
 if __name__ == '__main__':
+    if tf.config.list_physical_devices('GPU'):
+        policy = mixed_precision.experimental.Policy('mixed_float16')
+        mixed_precision.experimental.set_policy(policy)
+
     fname = 'hgest.hdf'
     origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
     path: str = tf.keras.utils.get_file(

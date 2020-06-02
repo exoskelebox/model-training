@@ -104,7 +104,7 @@ class Dense(HyperModel):
                                             default=7,
                                             step=1), activation='relu'),
             tf.keras.layers.Dropout(dropout),
-            tf.keras.layers.Dense(18, activation='softmax')
+            tf.keras.layers.Dense(18, activation='softmax', dtype='float32')
         ])
 
         """
