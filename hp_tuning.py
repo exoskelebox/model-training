@@ -16,7 +16,7 @@ def build_model(hp: HyperParameters):
     inputs = tf.keras.Input((15,))
     x = inputs
     dropout = hp.Float('dropout', 0.0, 0.5, 0.1, default=0.2)
-    for i in range(2):
+    for i in range(1):
         x = tf.keras.layers.Dense(
             2**hp.Int('exponent_{}'.format(i), 5, 8, default=6), 'relu')(x)
         x = tf.keras.layers.Dropout(dropout)(x)
@@ -90,14 +90,14 @@ if __name__ == '__main__':
             max_trials=10),
         hypermodel=build_model,
         directory='hp',
-        project_name='2d-dense')  # datetime.now().strftime("%Y%m%d-%H%M%S"))
+        project_name='1d-dense')  # datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     tuner.search_space_summary()
 
     tuner.search(
         df,
         2**9,
-        1000,
-        [tf.keras.callbacks.EarlyStopping(patience=4, restore_best_weights=True)])
+        100,
+        [tf.keras.callbacks.EarlyStopping('val_accuracy', restore_best_weights=True, patience=10)])
     tuner.results_summary(5)
-    #print(tuner.get_best_hyperparameters(5))
+    # print(tuner.get_best_hyperparameters(5))

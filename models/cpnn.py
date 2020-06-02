@@ -26,7 +26,8 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
 
         subject_results = []
 
-        src_early_stop = callbacks.EarlyStopping()
+        src_early_stop = callbacks.EarlyStopping(
+            'val_accuracy', restore_best_weights=True, patience=2)
         tar_early_stop = callbacks.EarlyStopping(
             'val_accuracy', restore_best_weights=True, patience=10)
 
@@ -53,15 +54,12 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
             x_train, x_test, y_train, y_test = train_test_split(
                 x, y, stratify=y)
 
-            src_model, tar_model = self.build(hp=HyperParameters())
+            src_model, _ = self.build(hp=HyperParameters())
 
             src_model.fit(x_train, y_train, batch_size, epochs, validation_data=(
                 x_test, y_test), callbacks=[src_early_stop])
 
-            for layer in src_model.layers:
-                layer.trainable = False
-
-            target_weights = tar_model.get_weights()
+            src_weights = src_model.get_weights()
 
             tar_df = df[df.subject_id == subject_id]
             repetitions = tar_df.repetition.to_numpy()
@@ -69,7 +67,13 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
             y = tar_df.label.to_numpy()
 
             for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
-                tar_model.set_weights(target_weights)
+
+                # Recreating the model is VERY important, as the adam optimizer needs to be reset.
+                src_model, tar_model = self.build(hp=HyperParameters())
+                src_model.set_weights(src_weights)
+
+                for layer in src_model.layers:
+                    layer.trainable = False
 
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]

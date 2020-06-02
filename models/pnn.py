@@ -29,7 +29,8 @@ class ProgressiveNeuralNetwork(HyperModel):
 
         subject_results = []
 
-        src_early_stop = callbacks.EarlyStopping()
+        src_early_stop = callbacks.EarlyStopping(
+            'val_accuracy', restore_best_weights=True, patience=2)
         tar_early_stop = callbacks.EarlyStopping(
             'val_accuracy', restore_best_weights=True, patience=10)
 
@@ -130,12 +131,12 @@ class ProgressiveNeuralNetwork(HyperModel):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=6,
+                          default=7,
                           step=1)
         adapter_exponent = 4
         dropout = hp.Float('dropout',
                            min_value=0.0,
-                           default=0.2,
+                           default=0.5,
                            max_value=0.5,
                            step=0.1)
 
@@ -157,7 +158,7 @@ class ProgressiveNeuralNetwork(HyperModel):
             x = layers.concatenate(
                 [x, *ada_x], name='concat_1_{}'.format(i)) if ada_x else x
 
-            # Hidden 2
+            """ # Hidden 2
             x = layers.Dense(
                 2**exponent, activation='relu', name='dense_2_{}'.format(i))(x)
             x = layers.Dropout(0.2, name='dropout_2_{}'.format(i))(x)
@@ -167,7 +168,7 @@ class ProgressiveNeuralNetwork(HyperModel):
 
             x = layers.concatenate(
                 [x, *ada_x], name='concat_2_{}'.format(i)) if ada_x else x
-
+            """
             # Output
             outputs = layers.Dense(
                 18, activation='softmax', name='output_{}'.format(i), dtype='float32')(x)
