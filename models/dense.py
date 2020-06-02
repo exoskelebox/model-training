@@ -12,8 +12,9 @@ import numpy as np
 class Dense(HyperModel):
     def __init__(self, name='dense', tunable=True):
         super().__init__(name=name, tunable=tunable)
-        policy = mixed_precision.experimental.Policy('mixed_float16')
-        mixed_precision.experimental.set_policy(policy)
+        if tf.config.list_physical_devices('GPU'):
+            policy = mixed_precision.experimental.Policy('mixed_float16')
+            mixed_precision.experimental.set_policy(policy)
         self.built = False
 
     def run_model(self, batch_size, epochs):
@@ -24,14 +25,13 @@ class Dense(HyperModel):
         key = 'normalized'
         df = pd.read_hdf(path, key)
 
+        subject_ids = df.subject_id.unique()
+        sensor_cols = [col for col in df.columns if col.startswith('sensor')]
+
         subject_results = []
 
         early_stop = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', restore_best_weights=True, patience=4)
-
-        subject_ids = df.subject_id.unique()
-        sensor_cols = [
-            col for col in df.columns if col.startswith('sensor')]
+            monitor='val_accuracy', restore_best_weights=True, patience=10)
 
         logdir = os.path.join(
             'logs', self.name, datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -45,23 +45,23 @@ class Dense(HyperModel):
 
             result = []
 
-            repetitions = subject_df.repetition.to_numpy()
+            train_repetitions = subject_df.repetition.to_numpy()
             x = subject_df[sensor_cols].to_numpy()
             y = subject_df.label.to_numpy()
 
-            for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
+            for rep_index, (train_index, val_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=train_repetitions), start=1):
 
                 x_train, y_train = x[train_index], y[train_index]
-                x_test, y_test = x[test_index], y[test_index]
+                x_val, y_val = x[val_index], y[val_index]
 
                 checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(logdir, str(
                     subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
                 model = self.build(hp=HyperParameters())
                 model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_test, y_test), callbacks=[early_stop, checkpoint])
+                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, checkpoint])
 
-                result.append(model.evaluate(x_test, y_test, batch_size))
+                result.append(model.evaluate(x_val, y_val, batch_size))
 
             mean = np.mean(result, axis=0).tolist()
 
@@ -101,17 +101,19 @@ class Dense(HyperModel):
             tf.keras.layers.Dense(2**hp.Int('exponent_1',
                                             min_value=6,
                                             max_value=8,
-                                            default=8,
-                                            step=1), activation='relu'),
-            tf.keras.layers.Dropout(dropout),
-            tf.keras.layers.Dense(2**hp.Int('exponent_2',
-                                            min_value=6,
-                                            max_value=8,
-                                            default=8,
+                                            default=7,
                                             step=1), activation='relu'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(18, activation='softmax', dtype='float32')
         ])
+
+        """
+        tf.keras.layers.Dense(2**hp.Int('exponent_2',
+                                            min_value=6,
+                                            max_value=8,
+                                            default=8,
+                                            step=1), activation='relu'),
+            tf.keras.layers.Dropout(dropout), """
 
         model.compile(
             optimizer='adam',

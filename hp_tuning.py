@@ -10,18 +10,19 @@ from sklearn.model_selection._split import train_test_split
 from sklearn import metrics, model_selection
 from sklearn.model_selection import LeaveOneGroupOut
 import numpy as np
+from tensorflow.keras import mixed_precision
 
 
 def build_model(hp: HyperParameters):
     inputs = tf.keras.Input((15,))
     x = inputs
     dropout = hp.Float('dropout', 0.0, 0.5, 0.1, default=0.2)
-    for i in range(2):
+    for i in range(1):
         x = tf.keras.layers.Dense(
             2**hp.Int('exponent_{}'.format(i), 5, 8, default=6), 'relu')(x)
         x = tf.keras.layers.Dropout(dropout)(x)
 
-    x = tf.keras.layers.Dense(18, activation='softmax')(x)
+    x = tf.keras.layers.Dense(18, activation='softmax', dtype='float32')(x)
     model = tf.keras.Model(inputs=inputs, outputs=x)
     model.compile(
         'adam',
@@ -77,6 +78,10 @@ class MyTuner(kt.Tuner):
 
 
 if __name__ == '__main__':
+    if tf.config.list_physical_devices('GPU'):
+        policy = mixed_precision.experimental.Policy('mixed_float16')
+        mixed_precision.experimental.set_policy(policy)
+
     fname = 'hgest.hdf'
     origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
     path: str = tf.keras.utils.get_file(
@@ -90,14 +95,14 @@ if __name__ == '__main__':
             max_trials=10),
         hypermodel=build_model,
         directory='hp',
-        project_name='2d-dense')  # datetime.now().strftime("%Y%m%d-%H%M%S"))
+        project_name='1d-dense')  # datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     tuner.search_space_summary()
 
     tuner.search(
         df,
         2**9,
-        1000,
-        [tf.keras.callbacks.EarlyStopping(patience=4, restore_best_weights=True)])
+        100,
+        [tf.keras.callbacks.EarlyStopping('val_accuracy', restore_best_weights=True, patience=10)])
     tuner.results_summary(5)
-    #print(tuner.get_best_hyperparameters(5))
+    # print(tuner.get_best_hyperparameters(5))

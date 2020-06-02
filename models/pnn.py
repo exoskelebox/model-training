@@ -15,8 +15,9 @@ from _datetime import datetime
 class ProgressiveNeuralNetwork(HyperModel):
     def __init__(self, name='pnn', tunable=True):
         super().__init__(name=name, tunable=tunable)
-        policy = mixed_precision.experimental.Policy('mixed_float16')
-        mixed_precision.experimental.set_policy(policy)
+        if tf.config.list_physical_devices('GPU'):
+            policy = mixed_precision.experimental.Policy('mixed_float16')
+            mixed_precision.experimental.set_policy(policy)
         self.built = False
 
     def run_model(self, batch_size, epochs):
@@ -29,8 +30,10 @@ class ProgressiveNeuralNetwork(HyperModel):
 
         subject_results = []
 
-        early_stop = callbacks.EarlyStopping(
-            monitor='val_loss', restore_best_weights=True, patience=4)
+        src_early_stop = callbacks.EarlyStopping(
+            restore_best_weights=True, patience=2)
+        tar_early_stop = callbacks.EarlyStopping(
+            'val_accuracy', restore_best_weights=True, patience=10)
 
         subject_ids = df.subject_id.unique()
         sensor_cols = [
@@ -64,9 +67,11 @@ class ProgressiveNeuralNetwork(HyperModel):
                     x = subject_df[sensor_cols].to_numpy()
                     y = subject_df.label.to_numpy()
 
-                    x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y)
+                    x_train, x_test, y_train, y_test = train_test_split(
+                        x, y, stratify=y)
 
-                    model.fit(x_train, y_train, batch_size, epochs, validation_data=(x_test, y_test), callbacks=[early_stop])
+                    model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                        x_test, y_test), callbacks=[src_early_stop])
 
                 for layer in model.layers:
                     layer.trainable = False
@@ -90,7 +95,7 @@ class ProgressiveNeuralNetwork(HyperModel):
                     subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
                 model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_test, y_test), callbacks=[early_stop, checkpoint])
+                          epochs, validation_data=(x_test, y_test), callbacks=[tar_early_stop, checkpoint])
 
                 result.append(model.evaluate(x_test, y_test, batch_size))
 
@@ -127,12 +132,12 @@ class ProgressiveNeuralNetwork(HyperModel):
         exponent = hp.Int('exponent',
                           min_value=4,
                           max_value=10,
-                          default=6,
+                          default=7,
                           step=1)
         adapter_exponent = 4
         dropout = hp.Float('dropout',
                            min_value=0.0,
-                           default=0.2,
+                           default=0.5,
                            max_value=0.5,
                            step=0.1)
 
@@ -154,7 +159,7 @@ class ProgressiveNeuralNetwork(HyperModel):
             x = layers.concatenate(
                 [x, *ada_x], name='concat_1_{}'.format(i)) if ada_x else x
 
-            # Hidden 2
+            """ # Hidden 2
             x = layers.Dense(
                 2**exponent, activation='relu', name='dense_2_{}'.format(i))(x)
             x = layers.Dropout(0.2, name='dropout_2_{}'.format(i))(x)
@@ -164,7 +169,7 @@ class ProgressiveNeuralNetwork(HyperModel):
 
             x = layers.concatenate(
                 [x, *ada_x], name='concat_2_{}'.format(i)) if ada_x else x
-
+            """
             # Output
             outputs = layers.Dense(
                 18, activation='softmax', name='output_{}'.format(i), dtype='float32')(x)
