@@ -124,24 +124,24 @@ class CombinedProgressiveNeuralNetwork(HyperModel):
         inputs = layers.Input((15,))
 
         # 1st hidden layer
-        x = layers.Dense(2**exponent, activation='relu')(inputs)
-        y = layers.Dense(2**exponent, activation='relu')(inputs)
-        a = layers.Dense(2**adapter_exponent, activation='relu')(y)
+        x = layers.Dense(2**exponent, activation='relu', kernel_initializer='he_uniform')(inputs)
+        y = layers.Dense(2**exponent, activation='relu', kernel_initializer='he_uniform')(inputs)
+        a = layers.Dense(2**adapter_exponent, activation='relu', kernel_initializer='he_uniform')(y)
 
         # 1st dropout layer
         x = layers.Dropout(dropout)(x)
         x = layers.concatenate([x, a])
         y = layers.Dropout(dropout)(y)
 
-        """ # 2nd hidden layer
-        x = layers.Dense(2**exponent, activation='relu')(x)
-        y = layers.Dense(2**exponent, activation='relu')(y)
-        a = layers.Dense(2**adapter_exponent, activation='relu')(y)
+        # 2nd hidden layer
+        x = layers.Dense(2**exponent, activation='relu', kernel_initializer='he_uniform')(x)
+        y = layers.Dense(2**exponent, activation='relu', kernel_initializer='he_uniform')(y)
+        a = layers.Dense(2**adapter_exponent, activation='relu', kernel_initializer='he_uniform')(y)
 
         # 2nd dropout layer
         x = layers.Dropout(dropout)(x)
         x = layers.concatenate([x, a])
-        y = layers.Dropout(dropout)(y) """
+        y = layers.Dropout(dropout)(y)
 
         # Output layer
         y = layers.Dense(18, activation='softmax',
