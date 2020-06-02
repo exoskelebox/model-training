@@ -33,7 +33,7 @@ class ProgressiveNeuralNetwork(HyperModel):
         src_early_stop = callbacks.EarlyStopping(
             restore_best_weights=True, patience=2)
         tar_early_stop = callbacks.EarlyStopping(
-            'val_accuracy', restore_best_weights=True, patience=10)
+            restore_best_weights=True, patience=10)
 
         subject_ids = df.subject_id.unique()
         sensor_cols = [
@@ -49,7 +49,6 @@ class ProgressiveNeuralNetwork(HyperModel):
 
         for subject_index, (target_subject_id, source_subject_ids) in enumerate(fold(subject_ids), start=1):
             tf.print('Subject {}/{}'.format(subject_index, len(subject_ids)))
-            result = []
 
             columns = self.build(hp=HyperParameters(),
                                  num_columns=len(subject_ids))
@@ -67,48 +66,48 @@ class ProgressiveNeuralNetwork(HyperModel):
                     x = subject_df[sensor_cols].to_numpy()
                     y = subject_df.label.to_numpy()
 
-                    x_train, x_test, y_train, y_test = train_test_split(
+                    x_train, x_val, y_train, y_val = train_test_split(
                         x, y, stratify=y)
 
                     model.fit(x_train, y_train, batch_size, epochs, validation_data=(
-                        x_test, y_test), callbacks=[src_early_stop])
+                        x_val, y_val), callbacks=[src_early_stop])
 
                 for layer in model.layers:
                     layer.trainable = False
 
             model = columns[-1]
-            base_weights = model.get_weights()
 
             subject_df = df[df.subject_id == target_subject_id]
+            subject_test_df = subject_df[subject_df.repetition ==
+                                         subject_df.repetition.max()]
+            subject_df = subject_df[subject_df.repetition !=
+                                    subject_df.repetition.max()]
 
-            repetitions = subject_df.repetition.to_numpy()
             x = subject_df[sensor_cols].to_numpy()
             y = subject_df.label.to_numpy()
 
-            for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
-                model.set_weights(base_weights)
+            checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(logdir, str(
+                subject_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
-                x_train, y_train = x[train_index], y[train_index]
-                x_test, y_test = x[test_index], y[test_index]
+            x_train, x_val, y_train, y_val = train_test_split(
+                x, y, stratify=y)
 
-                checkpoint = callbacks.ModelCheckpoint(os.path.join(logdir, str(
-                    subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
+            model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                x_val, y_val), callbacks=[tar_early_stop, checkpoint])
 
-                model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_test, y_test), callbacks=[tar_early_stop, checkpoint])
+            x_test = subject_test_df[sensor_cols].to_numpy()
+            y_test = subject_test_df.label.to_numpy()
 
-                result.append(model.evaluate(x_test, y_test, batch_size))
+            evaluation = model.evaluate(x_test, y_test, batch_size)
 
-            mean = np.mean(result, axis=0).tolist()
+            subject_results.append(evaluation)
 
-            subject_loss, subject_accuracy = mean
+            subject_loss, subject_accuracy = evaluation
 
             tf.summary.scalar('subject_loss', subject_loss,
                               step=(subject_index - 1))
             tf.summary.scalar('subject_accuracy', subject_accuracy,
                               step=(subject_index - 1))
-
-            subject_results.append(mean)
 
             model_loss, model_accuracy = np.mean(
                 subject_results, axis=0).tolist()

@@ -25,13 +25,16 @@ class Dense(HyperModel):
         key = 'normalized'
         df = pd.read_hdf(path, key)
 
+        df_test = df[df.repetition == df.repetition.max()]
+        df = df[df.repetition != df.repetition.max()]
+
         subject_ids = df.subject_id.unique()
         sensor_cols = [col for col in df.columns if col.startswith('sensor')]
 
         subject_results = []
 
         early_stop = tf.keras.callbacks.EarlyStopping(
-            monitor='val_accuracy', restore_best_weights=True, patience=10)
+            restore_best_weights=True, patience=10)
 
         logdir = os.path.join(
             'logs', self.name, datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -43,36 +46,35 @@ class Dense(HyperModel):
             print('Subject {}/{}'.format(subject_index, len(subject_ids)))
             subject_df = df[df.subject_id == subject_id]
 
-            result = []
-
-            train_repetitions = subject_df.repetition.to_numpy()
             x = subject_df[sensor_cols].to_numpy()
             y = subject_df.label.to_numpy()
 
-            for rep_index, (train_index, val_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=train_repetitions), start=1):
+            checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(logdir, str(
+                subject_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
 
-                x_train, y_train = x[train_index], y[train_index]
-                x_val, y_val = x[val_index], y[val_index]
+            model = self.build(hp=HyperParameters())
 
-                checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(logdir, str(
-                    subject_index), str(rep_index), 'checkpoint'), save_best_only=True, save_weights_only=True)
+            x_train, x_val, y_train, y_val = train_test_split(
+                x, y, stratify=y)
 
-                model = self.build(hp=HyperParameters())
-                model.fit(x_train, y_train, batch_size,
-                          epochs, validation_data=(x_val, y_val), callbacks=[early_stop, checkpoint])
+            model.fit(x_train, y_train, batch_size, epochs, validation_data=(
+                x_val, y_val), callbacks=[early_stop, checkpoint])
 
-                result.append(model.evaluate(x_val, y_val, batch_size))
+            subject_test_df = df_test[df_test.subject_id == subject_id]
 
-            mean = np.mean(result, axis=0).tolist()
+            x_test = subject_test_df[sensor_cols].to_numpy()
+            y_test = subject_test_df.label.to_numpy()
 
-            subject_loss, subject_accuracy = mean
+            evaluation = model.evaluate(x_test, y_test, batch_size)
+
+            subject_results.append(evaluation)
+
+            subject_loss, subject_accuracy = evaluation
 
             tf.summary.scalar('subject_loss', subject_loss,
                               step=(subject_index - 1))
             tf.summary.scalar('subject_accuracy', subject_accuracy,
                               step=(subject_index - 1))
-
-            subject_results.append(mean)
 
             model_loss, model_accuracy = np.mean(
                 subject_results, axis=0).tolist()
