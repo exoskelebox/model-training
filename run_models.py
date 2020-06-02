@@ -45,4 +45,4 @@ def run_models(selected_models=[], batch_size=1024, epochs=5):
 
 
 if __name__ == "__main__":
-    run_models(['dense'], 2**9, 100)
+    run_models(['pnn'], 2**9, 100)

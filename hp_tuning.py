@@ -88,6 +88,7 @@ if __name__ == '__main__':
         fname, origin)
     key = 'normalized'
     df = pd.read_hdf(path, key)
+    df = df[df.repetition != df.repetition.max()]
 
     tuner = MyTuner(
         oracle=kt.oracles.BayesianOptimization(
