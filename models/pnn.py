@@ -147,26 +147,26 @@ class ProgressiveNeuralNetwork(HyperModel):
 
             # Hidden 1
             x = layers.Dense(
-                2**exponent, activation='relu', name='dense_1_{}'.format(i))(inputs)
+                2**exponent, activation='relu', kernel_initializer='he_uniform', name='dense_1_{}'.format(i))(inputs)
             x = layers.Dropout(0.2, name='dropout_1_{}'.format(i))(x)
 
-            ada_x = [layers.Dense(2**adapter_exponent, activation='relu', name='adapter_1_{}_{}'.format(
+            ada_x = [layers.Dense(2**adapter_exponent, activation='relu', kernel_initializer='he_uniform', name='adapter_1_{}_{}'.format(
                 i, j))(columns[j].get_layer('dense_1_{}'.format(j)).output) for j in range(i)]
 
             x = layers.concatenate(
                 [x, *ada_x], name='concat_1_{}'.format(i)) if ada_x else x
 
-            """ # Hidden 2
+            # Hidden 2
             x = layers.Dense(
-                2**exponent, activation='relu', name='dense_2_{}'.format(i))(x)
+                2**exponent, activation='relu', kernel_initializer='he_uniform', name='dense_2_{}'.format(i))(x)
             x = layers.Dropout(0.2, name='dropout_2_{}'.format(i))(x)
 
-            ada_x = [layers.Dense(2**adapter_exponent, activation='relu', name='adapter_2_{}_{}'.format(
+            ada_x = [layers.Dense(2**adapter_exponent, activation='relu', kernel_initializer='he_uniform', name='adapter_2_{}_{}'.format(
                 i, j))(columns[j].get_layer('dense_2_{}'.format(j)).output) for j in range(i)]
 
             x = layers.concatenate(
                 [x, *ada_x], name='concat_2_{}'.format(i)) if ada_x else x
-            """
+           
             # Output
             outputs = layers.Dense(
                 18, activation='softmax', name='output_{}'.format(i), dtype='float32')(x)

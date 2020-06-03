@@ -104,24 +104,16 @@ class Dense(HyperModel):
                                             min_value=6,
                                             max_value=8,
                                             default=6,
-                                            step=1), activation='relu'),
+                                            step=1), activation='relu', kernel_initializer='he_uniform'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(2**hp.Int('exponent_2',
                                             min_value=6,
                                             max_value=8,
                                             default=6,
-                                            step=1), activation='relu'),
+                                            step=1), activation='relu', kernel_initializer='he_uniform'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(18, activation='softmax', dtype='float32')
         ])
-
-        """
-        tf.keras.layers.Dense(2**hp.Int('exponent_2',
-                                            min_value=6,
-                                            max_value=8,
-                                            default=8,
-                                            step=1), activation='relu'),
-            tf.keras.layers.Dropout(dropout), """
 
         model.compile(
             optimizer='adam',
