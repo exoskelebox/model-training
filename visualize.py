@@ -8,6 +8,8 @@ from sklearn.model_selection._split import LeaveOneGroupOut, train_test_split
 import tqdm
 from _datetime import datetime
 from matplotlib import pyplot as plt
+import seaborn as sns
+
 
 # Use 3 decimal places in output display
 pd.set_option("display.precision", 3)
@@ -16,6 +18,8 @@ pd.set_option("display.expand_frame_repr", False)
 # Set max rows displayed in output to 25
 pd.set_option("display.max_rows", 25)
 
+
+sns.set(style="ticks", color_codes=True)
 
 def show_groups(dataframe):
     for group, frame in dataframe:
@@ -51,7 +55,7 @@ def test_data():
         for gesture, _ in gesture_groups:
             print(f"Gesture: {gesture}")
 
-            gesture_data = subject_data[df.gesture == gesture]
+            gesture_data = subject_data[subject_data.gesture == gesture]
 
             gesture_data.pop('subject_id')
             gesture_data.pop('gesture')
@@ -113,7 +117,7 @@ def barplot(df, subject, gesture):
     return fig
 
 
-def boxplot(df, subject, gesture):
+def boxplot(df: pd.DataFrame, subject, gesture):
     """
     Returns a matplotlib figure containing the plotted data.
     """
@@ -144,6 +148,58 @@ def boxplot(df, subject, gesture):
     #plt.show()
     return fig
 
+def s_boxplot(df, gesture):
+    """
+    Returns a seaborn figure containing the plotted data.
+    """
+
+    #labels = [f'sensor{i}' for i in range(1, 16)]
+    
+    df = df.melt('subject_id', var_name='Sensor',  value_name='Value')
+
+    fig = sns.catplot(x='Sensor', y='Value', hue='subject_id', data=df, kind='box')
+    
+    plt.xticks(rotation=45, 
+               ha="right", rotation_mode="anchor")
+    return fig
+
+def best_worst(best=18, worst=15):
+    fname = 'hgest.hdf'
+    origin = f'https://storage.googleapis.com/exoskelebox/{fname}'
+    path: str = utils.get_file(
+        fname, origin, )
+    key = 'normalized'
+    df = pd.read_hdf(path, key)
+
+    # Create target Directory if don't exist
+    def check_dir(path):
+        if not os.path.exists(path):
+            os.mkdir(path)
+
+    figuredir = os.path.join('figures', 'data_boxplots_best_worst')
+    check_dir(figuredir)
+
+    gesture_groups = df.groupby("gesture", as_index=False)
+
+    for gesture, _ in gesture_groups:
+        print(f"Gesture: {gesture}")
+
+        gesture_data = df[df.gesture == gesture]
+        gesture_data.pop('gesture')
+        gesture_data.pop('label')
+        gesture_data.pop('repetition')
+        best_worst = gesture_data[(gesture_data.subject_id == best) | (gesture_data.subject_id == worst)]
+        """best_data = gesture_data[gesture_data.subject_id == best]
+        worst_data = gesture_data[gesture_data.subject_id == worst]
+
+        best_data.pop('subject_id')
+        worst_data.pop('subject_id')"""
+
+        gesture_dir = os.path.join(figuredir, f'{gesture}_best_worst_comparison.pdf')
+        fig = s_boxplot(best_worst, gesture)
+        plt.savefig(gesture_dir)
+
+
 
 if __name__ == "__main__":
-    test_data()
+    best_worst()
