@@ -20,7 +20,7 @@ def build_model(hp: HyperParameters):
     t_dropout = hp.Float('target_dropout', 0.0, 0.5, 0.1, default=0.2)
     p_dropout = hp.Float('pretrain_dropout', 0.0, 0.5, 0.1, default=0.2)
 
-    for i in range(2):
+    for i in range(1):
         # hidden layer
         x = tf.keras.layers.Dense(2**hp.Int('target_exponent_{}'.format(i), 5, 8, default=6), activation='relu', kernel_initializer='he_uniform', name='target_dense_{}'.format(i))(x)
         y = tf.keras.layers.Dense(2**hp.Int('pretrain_exponent_{}'.format(i), 5, 8, default=6), activation='relu', kernel_initializer='he_uniform', name='pretrain_dense_{}'.format(i))(y)
@@ -81,7 +81,7 @@ class MyTuner(kt.Tuner):
                 
                 early_stop = tf.keras.callbacks.EarlyStopping('val_pretrain_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=10)
                 model.fit(src_x_train, src_y_train, batch_size,
-                          epochs, validation_data=(src_x_val, {'pretrain_output': src_y_val}), callbacks=[early_stop])
+                          epochs, validation_data=(src_x_val, src_y_val), callbacks=[early_stop])
 
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
@@ -94,9 +94,9 @@ class MyTuner(kt.Tuner):
                     optimizer='adam',
                     loss={'target_output': 'sparse_categorical_crossentropy'},
                     metrics=['accuracy'])
-                early_stop = tf.keras.callbacks.EarlyStopping('val_target_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=10)
-                model.fit(x_train, {'target_output': y_train}, batch_size,
-                          epochs, validation_data=(x_test, {'target_output': y_test}), callbacks=[early_stop])
+                early_stop = tf.keras.callbacks.EarlyStopping('val_target_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=1)
+                model.fit(x_train, y_train, batch_size,
+                          epochs, validation_data=(x_test, y_test), callbacks=[early_stop])
                 evaluation = model.evaluate(x_test, y_test, batch_size)
 
                 result.append(evaluation)
