@@ -20,7 +20,7 @@ def build_model(hp: HyperParameters):
     t_dropout = hp.Float('target_dropout', 0.0, 0.5, 0.1, default=0.2)
     p_dropout = hp.Float('pretrain_dropout', 0.0, 0.5, 0.1, default=0.2)
 
-    for i in range(3):
+    for i in range(2):
         # hidden layer
         x = tf.keras.layers.Dense(2**hp.Int('target_exponent_{}'.format(i), 5, 8, default=6), activation='relu', kernel_initializer='he_uniform', name='target_dense_{}'.format(i))(x)
         y = tf.keras.layers.Dense(2**hp.Int('pretrain_exponent_{}'.format(i), 5, 8, default=6), activation='relu', kernel_initializer='he_uniform', name='pretrain_dense_{}'.format(i))(y)
