@@ -57,49 +57,50 @@ class MyTuner(kt.Tuner):
             x = subject_df[sensor_cols].to_numpy()
             y = subject_df.label.to_numpy()
 
+            src_x = src_df[sensor_cols].to_numpy()
+            src_y = src_df.label.to_numpy()
+
+            model = self.hypermodel.build(trial.hyperparameters)
+
+            src_x_train, src_x_val, src_y_train, src_y_val = train_test_split(
+                src_x, src_y, stratify=src_y)
+
+            for layer in model.layers:
+                if 'target' in layer.name:
+                    layer.trainable = False
+
+            model.compile(
+                optimizer='adam',
+                loss={'pretrain_output': 'sparse_categorical_crossentropy'},
+                metrics=['accuracy'])
+
+            early_stop = tf.keras.callbacks.EarlyStopping('val_pretrain_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=10)
+            model.fit(src_x_train, src_y_train, batch_size,
+                        epochs, validation_data=(src_x_val, src_y_val), callbacks=[early_stop])
+
+            for layer in model.layers:
+                if 'target' in layer.name:
+                    layer.trainable = True
+            model.get_layer('pretrain_output').trainable = False
+            weights = model.get_weights()
+
             for rep_index, (train_index, test_index) in enumerate(LeaveOneGroupOut().split(x, y, groups=repetitions), start=1):
-                src_test_df = src_df[src_df.repetition == rep_index]
-                src_train_df = src_df[src_df.repetition != rep_index]
-
-                src_x_val = src_test_df[sensor_cols].to_numpy()
-                src_y_val = src_test_df.label.to_numpy()
-
-                src_x_train = src_train_df[sensor_cols].to_numpy()
-                src_y_train = src_train_df.label.to_numpy()
-
-                model = self.hypermodel.build(trial.hyperparameters)
-
-                for layer in model.layers:
-                    if 'target' in layer.name:
-                        layer.trainable = False
-
-                model.compile(
-                    optimizer='adam',
-                    loss={'pretrain_output': 'sparse_categorical_crossentropy'},
-                    metrics=['accuracy'])
-
-                
-                early_stop = tf.keras.callbacks.EarlyStopping('val_pretrain_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=10)
-                model.fit(src_x_train, src_y_train, batch_size,
-                          epochs, validation_data=(src_x_val, src_y_val), callbacks=[early_stop])
-
                 x_train, y_train = x[train_index], y[train_index]
                 x_test, y_test = x[test_index], y[test_index]
                 
-                for layer in model.layers:
-                    if 'target' in layer.name:
-                        layer.trainable = True
+                model.set_weights(weights)
 
                 model.compile(
                     optimizer='adam',
                     loss={'target_output': 'sparse_categorical_crossentropy'},
                     metrics=['accuracy'])
-                early_stop = tf.keras.callbacks.EarlyStopping('val_target_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=1)
+
+                early_stop = tf.keras.callbacks.EarlyStopping('val_target_output_accuracy', min_delta=0.001, restore_best_weights=True, patience=10)
                 model.fit(x_train, y_train, batch_size,
                           epochs, validation_data=(x_test, y_test), callbacks=[early_stop])
-                evaluation = model.evaluate(x_test, y_test, batch_size)
 
-                result.append(evaluation)
+                loss, _, target_output_accuracy, _ = model.evaluate(x_test, y_test, batch_size)
+                result.append((loss, target_output_accuracy))
 
             mean = np.mean(result, axis=0).tolist()
 
