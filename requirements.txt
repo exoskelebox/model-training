@@ -1,4 +1,4 @@
 autopep8==1.4.4
 psycopg2==2.8.4
-tensorflow==2.1.0
+tensorflow==2.7.2
 tensorflow-plot==0.3.2
